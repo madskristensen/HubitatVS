@@ -1,0 +1,141 @@
+using Microsoft.VisualStudio.Shell;
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace HubitatVS
+{
+    public partial class HubitatConnectionsToolWindowControl : UserControl
+    {
+        private string _pendingHubPassword = string.Empty;
+
+        public HubitatConnectionsToolWindowControl()
+        {
+            InitializeComponent();
+            DataContext = new HubitatConnectionsViewModel();
+            Loaded += async (s, e) => await ViewModel.ReloadHubsAsync();
+        }
+
+        private HubitatConnectionsViewModel ViewModel => (HubitatConnectionsViewModel)DataContext;
+
+        private async void TestConnection_Click(object sender, RoutedEventArgs e)
+        {
+            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
+            if (hub == null)
+            {
+                await VS.StatusBar.ShowMessageAsync("Select a hub first.");
+                return;
+            }
+
+            await VS.StatusBar.ShowMessageAsync($"Testing connection to {hub.Name}\u2026");
+            try
+            {
+                using var client = new HubitatHubClient(hub);
+                bool ok = await client.TestConnectionAsync();
+                var msg = ok
+                    ? $"\u2713 Connected to {hub.Name} ({hub.Host})"
+                    : $"\u2717 Could not connect to {hub.Host}";
+                await VS.StatusBar.ShowMessageAsync(msg);
+            }
+            catch (Exception ex)
+            {
+                await ex.LogAsync();
+                await VS.StatusBar.ShowMessageAsync($"\u2717 [{ex.GetType().Name}] {ex.Message}");
+            }
+        }
+
+        private void NewHub_Click(object sender, RoutedEventArgs e)
+        {
+            HubsGrid.SelectedItem = null;
+            ClearFormFields();
+            HubNameBox.Focus();
+        }
+
+        private async void DeleteHub_Click(object sender, RoutedEventArgs e)
+        {
+            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
+            if (hub == null) return;
+
+            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+            var hubs = settings.GetHubs();
+            hubs.RemoveAll(h =>
+                string.Equals(h.Name, hub.Name, StringComparison.Ordinal) &&
+                string.Equals(h.Host, hub.Host, StringComparison.Ordinal));
+            settings.SetHubs(hubs);
+            await settings.SaveAsync();
+            await ViewModel.ReloadHubsAsync();
+            ClearFormFields();
+            StatusText.Text = $"Hub '{hub.Name}' deleted.";
+        }
+
+        private async void SaveHub_Click(object sender, RoutedEventArgs e)
+        {
+            var name = HubNameBox.Text.Trim();
+            var host = HubHostBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(host))
+            {
+                StatusText.Text = "Name and Host are required.";
+                return;
+            }
+
+            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+            var hubs = settings.GetHubs();
+            var existing = hubs.FirstOrDefault(h =>
+                string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase));
+
+            if (existing != null)
+            {
+                existing.Host = host;
+                existing.Username = HubUsernameBox.Text.Trim();
+                existing.Password = _pendingHubPassword;
+            }
+            else
+            {
+                hubs.Add(new HubitatHubConfig
+                {
+                    Name = name,
+                    Host = host,
+                    Username = HubUsernameBox.Text.Trim(),
+                    Password = _pendingHubPassword
+                });
+            }
+
+            settings.SetHubs(hubs);
+            await settings.SaveAsync();
+            await ViewModel.ReloadHubsAsync();
+            StatusText.Text = $"Hub '{name}' saved.";
+        }
+
+        private void ClearForm_Click(object sender, RoutedEventArgs e)
+        {
+            HubsGrid.SelectedItem = null;
+            ClearFormFields();
+        }
+
+        private void HubPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+            => _pendingHubPassword = HubPasswordBox.Password;
+
+        private void HubsGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
+            if (hub == null) return;
+
+            HubNameBox.Text = hub.Name;
+            HubHostBox.Text = hub.Host;
+            HubUsernameBox.Text = hub.Username;
+            HubPasswordBox.Password = hub.Password;
+            _pendingHubPassword = hub.Password;
+        }
+
+        private void ClearFormFields()
+        {
+            HubNameBox.Text = string.Empty;
+            HubHostBox.Text = string.Empty;
+            HubUsernameBox.Text = string.Empty;
+            HubPasswordBox.Password = string.Empty;
+            _pendingHubPassword = string.Empty;
+        }
+    }
+}
