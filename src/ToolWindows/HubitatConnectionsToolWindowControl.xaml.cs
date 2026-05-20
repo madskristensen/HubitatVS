@@ -14,33 +14,46 @@ namespace HubitatVS
         {
             InitializeComponent();
             DataContext = new HubitatConnectionsViewModel();
-            Loaded += async (s, e) => await ViewModel.ReloadHubsAsync();
+            Loaded += async (s, e) =>
+            {
+                await ViewModel.ReloadHubsAsync();
+                await ViewModel.TestAllConnectionsAsync();
+            };
         }
 
         private HubitatConnectionsViewModel ViewModel => (HubitatConnectionsViewModel)DataContext;
 
         private async void TestConnection_Click(object sender, RoutedEventArgs e)
         {
-            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
-            if (hub == null)
+            var hubVm = HubsGrid.SelectedItem as HubitatHubViewModel;
+            if (hubVm == null)
             {
                 await VS.StatusBar.ShowMessageAsync("Select a hub first.");
                 return;
             }
 
-            await VS.StatusBar.ShowMessageAsync($"Testing connection to {hub.Name}\u2026");
+            await VS.StatusBar.ShowMessageAsync($"Testing connection to {hubVm.Hub.Name}\u2026");
             try
             {
-                using var client = new HubitatHubClient(hub);
+                hubVm.Status = ConnectionStatus.Testing;
+                hubVm.StatusMessage = "Testing…";
+
+                using var client = new HubitatHubClient(hubVm.Hub);
                 bool ok = await client.TestConnectionAsync();
+
+                hubVm.Status = ok ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
+                hubVm.StatusMessage = ok ? "Connected" : "Failed";
+
                 var msg = ok
-                    ? $"\u2713 Connected to {hub.Name} ({hub.Host})"
-                    : $"\u2717 Could not connect to {hub.Host}";
+                    ? $"\u2713 Connected to {hubVm.Hub.Name} ({hubVm.Hub.Host})"
+                    : $"\u2717 Could not connect to {hubVm.Hub.Host}";
                 await VS.StatusBar.ShowMessageAsync(msg);
             }
             catch (Exception ex)
             {
                 await ex.LogAsync();
+                hubVm.Status = ConnectionStatus.Disconnected;
+                hubVm.StatusMessage = "Error";
                 await VS.StatusBar.ShowMessageAsync($"\u2717 [{ex.GetType().Name}] {ex.Message}");
             }
         }
@@ -54,13 +67,14 @@ namespace HubitatVS
 
         private async void DeleteHub_Click(object sender, RoutedEventArgs e)
         {
-            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
-            if (hub == null)
+            var hubVm = HubsGrid.SelectedItem as HubitatHubViewModel;
+            if (hubVm == null)
             {
                 await VS.StatusBar.ShowMessageAsync("Select a hub first.");
                 return;
             }
 
+            var hub = hubVm.Hub;
             var settings = await HubitatHubSettings.GetLiveInstanceAsync();
             var hubs = settings.GetHubs();
             hubs.RemoveAll(h =>
@@ -123,9 +137,10 @@ namespace HubitatVS
 
         private void HubsGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
-            var hub = HubsGrid.SelectedItem as HubitatHubConfig;
-            if (hub == null) return;
+            var hubVm = HubsGrid.SelectedItem as HubitatHubViewModel;
+            if (hubVm == null) return;
 
+            var hub = hubVm.Hub;
             HubNameBox.Text = hub.Name;
             HubHostBox.Text = hub.Host;
             HubUsernameBox.Text = hub.Username;

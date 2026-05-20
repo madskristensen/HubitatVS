@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,6 +27,7 @@ namespace HubitatVS
                 await VS.MessageBox.ShowErrorAsync(
                     "Hubitat",
                     "No Hubitat connections configured. Open Hubitat Connections from the Tools menu to add one.");
+                await HubitatConnectionsToolWindow.ShowAsync();
                 return;
             }
 
@@ -92,10 +94,41 @@ namespace HubitatVS
 
                 var candidate = HubitatGroovyAnalyzer.AnalyzeSource(source, filePath);
 
+                // Check if we need to prompt the user for target selection
+                int? targetId = null;
+                if (!string.IsNullOrWhiteSpace(candidate.NamespaceName))
+                {
+                    var namespaceMatches = await client.GetNamespaceMatchesAsync(candidate.Kind, candidate.NamespaceName, ct);
+
+                    // Check if there's an exact match (name + namespace)
+                    var exactMatch = namespaceMatches.FirstOrDefault(entry =>
+                        string.Equals(entry.Name, candidate.DisplayName, StringComparison.OrdinalIgnoreCase));
+
+                    if (exactMatch != null)
+                    {
+                        targetId = exactMatch.Id;
+                    }
+                    else if (namespaceMatches.Count > 0)
+                    {
+                        // No exact match, but namespace matches exist - prompt user
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        var dialog = new HubitatCodePickerDialog(candidate.DisplayName, candidate.NamespaceName, namespaceMatches);
+                        if (dialog.ShowModal() != true)
+                        {
+                            await WriteToPaneAsync(pane, $"  ⊘ {fileName}: Cancelled by user\r\n");
+                            continue;
+                        }
+
+                        targetId = dialog.IsCreateNew ? (int?)null : dialog.SelectedEntry.Id;
+                    }
+                }
+
                 HubitatPublishResult result;
                 try
                 {
-                    result = await client.PublishAsync(candidate, source, ct);
+                    result = targetId.HasValue || !string.IsNullOrWhiteSpace(candidate.NamespaceName)
+                        ? await client.PublishToTargetAsync(candidate, source, targetId, ct)
+                        : await client.PublishAsync(candidate, source, ct);
                 }
                 catch (Exception ex)
                 {

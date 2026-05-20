@@ -109,6 +109,65 @@ namespace HubitatVS
                 : await CreateCodeAsync(codeDescriptor, candidate.DisplayName, candidate.NamespaceName, source, ct);
         }
 
+        /// <summary>Publishes to a specific app/driver ID (update) or creates new (targetId = null).</summary>
+        public async Task<HubitatPublishResult> PublishToTargetAsync(
+            HubitatCodeCandidate candidate,
+            string source,
+            int? targetId,
+            CancellationToken ct = default)
+        {
+            _ = candidate ?? throw new ArgumentNullException(nameof(candidate));
+            await EnsureAuthenticatedAsync(ct);
+
+            if (candidate.Kind == HubitatCodeKind.Unknown)
+            {
+                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+            }
+
+            if (string.IsNullOrWhiteSpace(candidate.DisplayName))
+            {
+                var descriptor = GetDescriptor(candidate.Kind);
+                return CreateFailure(candidate.Kind, $"Could not parse the {descriptor.Noun} name from the Groovy definition() block.");
+            }
+
+            var codeDescriptor = GetDescriptor(candidate.Kind);
+            return targetId.HasValue
+                ? await UpdateCodeAsync(codeDescriptor, targetId.Value, source, ct)
+                : await CreateCodeAsync(codeDescriptor, candidate.DisplayName, candidate.NamespaceName, source, ct);
+        }
+
+        /// <summary>Gets all apps or drivers matching the namespace from the hub.</summary>
+        public async Task<IReadOnlyList<HubitatCodeEntry>> GetNamespaceMatchesAsync(
+            HubitatCodeKind kind,
+            string namespaceName,
+            CancellationToken ct = default)
+        {
+            await EnsureAuthenticatedAsync(ct);
+            var descriptor = GetDescriptor(kind);
+
+            using var request = CreateRequest(HttpMethod.Get, descriptor.ListEndpoint);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                return Array.Empty<HubitatCodeEntry>();
+
+            var json = await response.Content.ReadAsStringAsync();
+            var list = JsonConvert.DeserializeObject<List<HubitatCodeListEntry>>(json);
+            if (list == null)
+                return Array.Empty<HubitatCodeEntry>();
+
+            return list
+                .Where(entry => string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase))
+                .Select(entry => new HubitatCodeEntry
+                {
+                    Id = entry.Id,
+                    Name = entry.Name,
+                    Namespace = entry.Namespace
+                })
+                .ToArray();
+        }
+
         private async Task<int?> FindCodeOnHubAsync(
             HubitatCodeDescriptor descriptor,
             string name,
@@ -125,28 +184,12 @@ namespace HubitatVS
             var list = JsonConvert.DeserializeObject<List<HubitatCodeListEntry>>(json);
             if (list == null) return null;
 
+            // Only return an exact match on BOTH name AND namespace
             var exactMatch = list.FirstOrDefault(entry =>
                 string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase) &&
                 (string.IsNullOrEmpty(namespaceName) || string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase)));
-            if (exactMatch != null)
-            {
-                return exactMatch.Id;
-            }
 
-            if (descriptor.Kind == HubitatCodeKind.App && !string.IsNullOrWhiteSpace(namespaceName))
-            {
-                var namespaceMatches = list
-                    .Where(entry => string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase))
-                    .Take(2)
-                    .ToList();
-
-                if (namespaceMatches.Count == 1)
-                {
-                    return namespaceMatches[0].Id;
-                }
-            }
-
-            return null;
+            return exactMatch?.Id;
         }
 
         private async Task<HubitatPublishResult> UpdateCodeAsync(

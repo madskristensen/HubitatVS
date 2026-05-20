@@ -48,7 +48,7 @@
 		</CommandPlacements>
 
 		<KeyBindings>
-			<KeyBinding guid="HubitatVS" id="PublishToHubitatCommand" editor="guidVSStd97" key1="1" mod1="Alt" />
+			<KeyBinding guid="HubitatVS" id="PublishToHubitatCommand" editor="guidVSStd97" key1="9" mod1="Control Shift" />
 		</KeyBindings>
 
 		<Symbols>
