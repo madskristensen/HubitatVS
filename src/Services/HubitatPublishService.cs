@@ -1,16 +1,15 @@
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace HubitatVS
 {
     internal static class HubitatPublishService
     {
+        private static RatingPrompt _ratingPrompt = new("MadsKristensen.HubitatVS", Vsix.Name, HubitatHubSettings.Instance, 2);
+
         /// <summary>Selects a hub (prompting if multiple) then publishes a single file.</summary>
         public static async Task PublishFileAsync(string filePath)
         {
@@ -161,6 +160,11 @@ namespace HubitatVS
                 : $"Published to {hub.Name}: {successCount}/{filePaths.Count} succeeded";
 
             await VS.StatusBar.ShowMessageAsync(summary);
+
+            if (failCount == 0)
+            {
+                _ratingPrompt.RegisterSuccessfulUsage();
+            }
         }
 
         private static async Task ActivatePaneAsync(IVsOutputWindowPane? pane)
