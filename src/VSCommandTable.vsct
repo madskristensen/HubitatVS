@@ -3,7 +3,6 @@
 
 	<Extern href="stdidcmd.h"/>
 	<Extern href="vsshlids.h"/>
-	<Include href="KnownImageIds.vsct"/>
 	<Include href="VSGlobals.vsct"/>
 
 	<Commands package="HubitatVS">
@@ -16,22 +15,24 @@
 			</Group>
 		</Groups>
 
+		<Bitmaps>
+			<Bitmap guid="Icons" href="Resources\Icons\logo.16.16.png" usedList="Logo"/>
+		</Bitmaps>
+
 		<Buttons>
 			<Button guid="HubitatVS" id="ShowHubitatConnectionsToolWindowCommand" priority="0x0100" type="Button">
 				<Parent guid="VSMainMenu" id="Tools.ExternalToolsGroup" />
 				<Icon guid="Icons" id="Logo" />
-				<CommandFlag>IconIsMoniker</CommandFlag>
 				<Strings>
 					<ButtonText>Hubitat Connections...</ButtonText>
 					<LocCanonicalName>.HubitatVS.ShowHubitatConnectionsToolWindowCommand</LocCanonicalName>
 				</Strings>
 			</Button>
+      
 			<Button guid="HubitatVS" id="PublishToHubitatCommand" priority="0x0100" type="Button">
 				<Parent guid="HubitatVS" id="HubitatWorkspaceContextMenuGroup"/>
 				<Icon guid="Icons" id="Logo" />
-				<CommandFlag>IconIsMoniker</CommandFlag>
 				<CommandFlag>DynamicVisibility</CommandFlag>
-				<CommandFlag>DefaultInvisible</CommandFlag>
 				<Strings>
 					<ButtonText>Publish to Hubitat...</ButtonText>
 					<LocCanonicalName>.HubitatVS.PublishToHubitatCommand</LocCanonicalName>
@@ -39,6 +40,12 @@
 			</Button>
 		</Buttons>
 		</Commands>
+
+		<CommandPlacements>
+			<CommandPlacement guid="HubitatVS" id="PublishToHubitatCommand" priority="0x0100">
+				<Parent guid="VSMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
+			</CommandPlacement>
+		</CommandPlacements>
 
 		<KeyBindings>
 			<KeyBinding guid="HubitatVS" id="PublishToHubitatCommand" editor="guidVSStd97" key1="9" mod1="CONTROL SHIFT" />

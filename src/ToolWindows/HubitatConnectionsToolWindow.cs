@@ -21,7 +21,7 @@ namespace HubitatVS
         {
             public Pane()
             {
-                BitmapImageMoniker = KnownMonikers.StatusInformation;
+                BitmapImageMoniker = RuntimeMonikers.HubitatLogoMoniker;
             }
         }
     }

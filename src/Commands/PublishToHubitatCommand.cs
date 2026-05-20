@@ -1,4 +1,5 @@
 using Community.VisualStudio.Toolkit;
+using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
@@ -29,22 +30,26 @@ namespace HubitatVS
 
             var monitorSelection = Microsoft.VisualStudio.Shell.Package.GetGlobalService(
                 typeof(SVsShellMonitorSelection)) as IVsMonitorSelection;
-            if (monitorSelection == null) return null;
+            if (monitorSelection == null)
+                return null;
 
-            monitorSelection.GetCurrentSelection(
+            int hr = monitorSelection.GetCurrentSelection(
                 out IntPtr hierPtr, out uint itemId,
                 out IVsMultiItemSelect _, out IntPtr containerPtr);
 
             if (containerPtr != IntPtr.Zero)
                 Marshal.Release(containerPtr);
 
-            if (hierPtr == IntPtr.Zero) return null;
+            if (ErrorHandler.Failed(hr) || hierPtr == IntPtr.Zero || itemId == VSConstants.VSITEMID_NIL)
+                return null;
 
             IVsHierarchy hierarchy;
             try { hierarchy = (IVsHierarchy)Marshal.GetObjectForIUnknown(hierPtr); }
             finally { Marshal.Release(hierPtr); }
 
-            hierarchy.GetCanonicalName(itemId, out string path);
+            hr = hierarchy.GetCanonicalName(itemId, out string path);
+            if (ErrorHandler.Failed(hr))
+                return null;
 
             return path != null && path.EndsWith(".groovy", StringComparison.OrdinalIgnoreCase)
                 ? path
