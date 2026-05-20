@@ -2,7 +2,9 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,7 +26,6 @@ namespace HubitatVS
                 AllowAutoRedirect = false,
                 UseCookies = false
             };
-            // Strip any scheme the user may have typed (e.g. "http://192.168.1.1" â†’ "192.168.1.1")
             var host = config.Host ?? string.Empty;
             if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
                 host = host.Substring(7);
@@ -41,10 +42,8 @@ namespace HubitatVS
         public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
         {
             await EnsureAuthenticatedAsync(ct);
-            using var request = new HttpRequestMessage(HttpMethod.Get, "/hub2/hubData");
+            using var request = CreateRequest(HttpMethod.Get, "/hub2/hubData");
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
-            if (!string.IsNullOrEmpty(_sessionCookie))
-                request.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
 
             var response = await _http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode) return false;
@@ -69,7 +68,7 @@ namespace HubitatVS
 
             if (response.Headers.TryGetValues("set-cookie", out var cookieValues))
             {
-                var first = System.Linq.Enumerable.FirstOrDefault(cookieValues);
+                var first = cookieValues.FirstOrDefault();
                 _sessionCookie = first != null ? first.Split(';')[0] : string.Empty;
             }
 
@@ -84,205 +83,393 @@ namespace HubitatVS
                 await LoginAsync(ct);
         }
 
-        public async Task<HubitatPublishResult> PublishDriverAsync(
+        public async Task<HubitatPublishResult> PublishAsync(
+            HubitatCodeCandidate candidate,
             string source,
             CancellationToken ct = default)
         {
+            _ = candidate ?? throw new ArgumentNullException(nameof(candidate));
             await EnsureAuthenticatedAsync(ct);
 
-            var (name, ns) = ParseGroovyDefinition(source);
-            if (string.IsNullOrEmpty(name))
-                return new HubitatPublishResult
-                {
-                    Success = false,
-                    Message = "Could not parse driver name from the Groovy definition() block."
-                };
+            if (candidate.Kind == HubitatCodeKind.Unknown)
+            {
+                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+            }
 
-            var existingId = await FindDriverOnHubAsync(name, ns, ct);
+            if (string.IsNullOrWhiteSpace(candidate.DisplayName))
+            {
+                var descriptor = GetDescriptor(candidate.Kind);
+                return CreateFailure(candidate.Kind, $"Could not parse the {descriptor.Noun} name from the Groovy definition() block.");
+            }
+
+            var codeDescriptor = GetDescriptor(candidate.Kind);
+            var existingId = await FindCodeOnHubAsync(codeDescriptor, candidate.DisplayName, candidate.NamespaceName, ct);
             return existingId.HasValue
-                ? await UpdateDriverAsync(existingId.Value, source, ct)
-                : await CreateDriverAsync(source, ct);
+                ? await UpdateCodeAsync(codeDescriptor, existingId.Value, source, ct)
+                : await CreateCodeAsync(codeDescriptor, candidate.DisplayName, candidate.NamespaceName, source, ct);
         }
 
-        private async Task<int?> FindDriverOnHubAsync(string name, string ns, CancellationToken ct)
+        private async Task<int?> FindCodeOnHubAsync(
+            HubitatCodeDescriptor descriptor,
+            string name,
+            string namespaceName,
+            CancellationToken ct)
         {
-            try
+            using var request = CreateRequest(HttpMethod.Get, descriptor.ListEndpoint);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            var list = JsonConvert.DeserializeObject<List<HubitatCodeListEntry>>(json);
+            if (list == null) return null;
+
+            var exactMatch = list.FirstOrDefault(entry =>
+                string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrEmpty(namespaceName) || string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase)));
+            if (exactMatch != null)
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, "/hub2/userDeviceTypes");
-                req.Headers.TryAddWithoutValidation("Accept", "application/json");
-                if (!string.IsNullOrEmpty(_sessionCookie))
-                    req.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
-
-                var resp = await _http.SendAsync(req, ct);
-                if (!resp.IsSuccessStatusCode) return null;
-
-                var json = await resp.Content.ReadAsStringAsync();
-                var list = JsonConvert.DeserializeObject<List<DriverListEntry>>(json);
-                if (list == null) return null;
-
-                var match = list.FirstOrDefault(d =>
-                    string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase) &&
-                    (string.IsNullOrEmpty(ns) || string.Equals(d.Namespace, ns, StringComparison.OrdinalIgnoreCase)));
-
-                return match?.Id;
+                return exactMatch.Id;
             }
-            catch (Exception ex)
+
+            if (descriptor.Kind == HubitatCodeKind.App && !string.IsNullOrWhiteSpace(namespaceName))
             {
-                await ex.LogAsync();
-                return null;
+                var namespaceMatches = list
+                    .Where(entry => string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase))
+                    .Take(2)
+                    .ToList();
+
+                if (namespaceMatches.Count == 1)
+                {
+                    return namespaceMatches[0].Id;
+                }
             }
+
+            return null;
         }
 
-        private static (string name, string ns) ParseGroovyDefinition(string source)
-        {
-            // Matches: definition(name: "My Driver", namespace: "myns", ...)
-            // name and namespace can appear in either order and use single or double quotes
-            var nameMatch = Regex.Match(source,
-                @"definition\s*\([^)]*\bname\s*:\s*[""']([^""']+)[""']",
-                RegexOptions.IgnoreCase | RegexOptions.Singleline);
-            var nsMatch = Regex.Match(source,
-                @"definition\s*\([^)]*\bnamespace\s*:\s*[""']([^""']+)[""']",
-                RegexOptions.IgnoreCase | RegexOptions.Singleline);
-
-            return (nameMatch.Success ? nameMatch.Groups[1].Value : string.Empty,
-                    nsMatch.Success ? nsMatch.Groups[1].Value : string.Empty);
-        }
-
-        private async Task<HubitatPublishResult> UpdateDriverAsync(
-            int driverId,
+        private async Task<HubitatPublishResult> UpdateCodeAsync(
+            HubitatCodeDescriptor descriptor,
+            int codeId,
             string source,
             CancellationToken ct)
         {
-            using var codeRequest = new HttpRequestMessage(HttpMethod.Get, $"/driver/ajax/code?id={driverId}");
+            using var codeRequest = CreateRequest(HttpMethod.Get, $"{descriptor.EditorBasePath}/ajax/code?id={codeId}");
             codeRequest.Headers.TryAddWithoutValidation("Accept", "application/json");
-            if (!string.IsNullOrEmpty(_sessionCookie))
-                codeRequest.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
 
             var codeResponse = await _http.SendAsync(codeRequest, ct);
-            if (!codeResponse.IsSuccessStatusCode)
-                return new HubitatPublishResult
-                {
-                    Success = false,
-                    Message = $"Failed to fetch driver {driverId}: {codeResponse.StatusCode}"
-                };
-
             var codeJson = await codeResponse.Content.ReadAsStringAsync();
-            var codeData = JsonConvert.DeserializeObject<DriverCodeResponse>(codeJson);
+            if (!codeResponse.IsSuccessStatusCode)
+            {
+                return CreateFailure(
+                    descriptor.Kind,
+                    $"Failed to fetch {descriptor.Noun} {codeId}: {codeResponse.StatusCode}",
+                    $"Response body: {FormatDiagnosticText(codeJson)}");
+            }
+
+            var codeData = JsonConvert.DeserializeObject<HubitatCodeResponse>(codeJson);
             if (codeData == null)
-                return new HubitatPublishResult { Success = false, Message = "Failed to parse driver code response." };
+            {
+                return CreateFailure(
+                    descriptor.Kind,
+                    $"Failed to parse {descriptor.Noun} code response.",
+                    $"Raw response: {FormatDiagnosticText(codeJson)}");
+            }
+
+            if (descriptor.Kind == HubitatCodeKind.App)
+            {
+                return await SaveAppCodeJsonAsync(codeId, codeData.Version, source, ct);
+            }
 
             var updateContent = new FormUrlEncodedContent(new[]
             {
-                new KeyValuePair<string, string>("id", driverId.ToString()),
+                new KeyValuePair<string, string>("id", codeId.ToString()),
                 new KeyValuePair<string, string>("version", codeData.Version.ToString()),
                 new KeyValuePair<string, string>("source", source)
             });
 
-            using var updateRequest = new HttpRequestMessage(HttpMethod.Post, "/driver/ajax/update");
-            if (!string.IsNullOrEmpty(_sessionCookie))
-                updateRequest.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
+            using var updateRequest = CreateRequest(HttpMethod.Post, $"{descriptor.EditorBasePath}/ajax/update");
             updateRequest.Content = updateContent;
 
             var updateResponse = await _http.SendAsync(updateRequest, ct);
             var updateJson = await updateResponse.Content.ReadAsStringAsync();
-            var updateData = JsonConvert.DeserializeObject<DriverUpdateResponse>(updateJson);
+            var updateData = JsonConvert.DeserializeObject<HubitatUpdateResponse>(updateJson);
 
             if (updateData?.Status == "success")
+            {
                 return new HubitatPublishResult
                 {
                     Success = true,
-                    Message = $"Updated driver ID {driverId} to version {updateData.Version}.",
-                    DriverId = driverId
-                };
-
-            return new HubitatPublishResult
-            {
-                Success = false,
-                Message = $"Update failed: {updateData?.ErrorMessage ?? "Unknown error"}"
-            };
-        }
-
-        private async Task<HubitatPublishResult> CreateDriverAsync(
-            string source,
-            CancellationToken ct)
-        {
-            var createContent = new FormUrlEncodedContent(new[]
-            {
-                new KeyValuePair<string, string>("id", ""),
-                new KeyValuePair<string, string>("version", ""),
-                new KeyValuePair<string, string>("create", ""),
-                new KeyValuePair<string, string>("source", source)
-            });
-
-            using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/driver/save");
-            if (!string.IsNullOrEmpty(_sessionCookie))
-                createRequest.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
-            createRequest.Content = createContent;
-
-            var createResponse = await _http.SendAsync(createRequest, ct);
-
-            if (createResponse.StatusCode == System.Net.HttpStatusCode.Redirect ||
-                createResponse.StatusCode == System.Net.HttpStatusCode.Found)
-            {
-                var location = createResponse.Headers.Location?.ToString() ?? string.Empty;
-                const string editSegment = "/driver/editor/";
-                var segIdx = location.IndexOf(editSegment, StringComparison.OrdinalIgnoreCase);
-                if (segIdx >= 0)
-                {
-                    var idStr = location.Substring(segIdx + editSegment.Length).TrimEnd('/');
-                    if (int.TryParse(idStr, out int newId))
-                        return new HubitatPublishResult
-                        {
-                            Success = true,
-                            Message = $"Created new driver with ID {newId}.",
-                            DriverId = newId
-                        };
-                }
-
-                return new HubitatPublishResult
-                {
-                    Success = false,
-                    Message = $"Driver created but could not parse ID from location: {location}"
+                    Message = $"Updated {descriptor.Noun} ID {codeId} to version {updateData.Version}.",
+                    CodeId = codeId,
+                    PublishedVersion = updateData.Version,
+                    CodeKind = descriptor.Kind
                 };
             }
 
+            return CreateFailure(
+                descriptor.Kind,
+                $"{descriptor.NounCapitalized} update failed: {updateData?.ErrorMessage ?? "Unknown error"}",
+                $"HTTP {(int)updateResponse.StatusCode} {updateResponse.StatusCode}\r\nRaw response: {FormatDiagnosticText(updateJson)}");
+        }
+
+        private async Task<HubitatPublishResult> CreateCodeAsync(
+            HubitatCodeDescriptor descriptor,
+            string name,
+            string namespaceName,
+            string source,
+            CancellationToken ct)
+        {
+            if (descriptor.Kind == HubitatCodeKind.App)
+            {
+                return await SaveAppCodeJsonAsync(null, null, source, ct);
+            }
+
+            var createContent = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("id", string.Empty),
+                new KeyValuePair<string, string>("version", string.Empty),
+                new KeyValuePair<string, string>("create", string.Empty),
+                new KeyValuePair<string, string>("source", source)
+            });
+
+            using var createRequest = CreateRequest(HttpMethod.Post, $"{descriptor.EditorBasePath}/save");
+            createRequest.Content = createContent;
+
+            var createResponse = await _http.SendAsync(createRequest, ct);
+            var responseBody = await createResponse.Content.ReadAsStringAsync();
+            if (!IsCreateAccepted(createResponse.StatusCode))
+            {
+                return CreateFailure(
+                    descriptor.Kind,
+                    $"Create failed with status: {createResponse.StatusCode}",
+                    $"Response body: {FormatDiagnosticText(responseBody)}");
+            }
+
+            var newId = TryParseCreatedCodeId(descriptor, createResponse.Headers.Location?.ToString(), responseBody)
+                ?? await FindCodeOnHubAsync(descriptor, name, namespaceName, ct);
+            if (!newId.HasValue)
+            {
+                return CreateFailure(descriptor.Kind, $"{descriptor.NounCapitalized} save completed but the hub did not return a new {descriptor.Noun} ID.");
+            }
+
+            var publishedVersion = await GetCodeVersionAsync(descriptor, newId.Value, ct);
+
             return new HubitatPublishResult
             {
-                Success = false,
-                Message = $"Create failed with status: {createResponse.StatusCode}"
+                Success = true,
+                Message = $"Created new {descriptor.Noun} with ID {newId.Value}.",
+                CodeId = newId.Value,
+                PublishedVersion = publishedVersion,
+                CodeKind = descriptor.Kind
             };
         }
 
-        public void Dispose() => _http?.Dispose();
+        private async Task<HubitatPublishResult> SaveAppCodeJsonAsync(
+            int? codeId,
+            int? version,
+            string source,
+            CancellationToken ct)
+        {
+            var requestDetails = $"Request payload: id={(codeId?.ToString() ?? "<new>")}, version={(version?.ToString() ?? "<null>")}";
+            var payload = JsonConvert.SerializeObject(new HubitatAppSaveRequest
+            {
+                Id = codeId,
+                Version = version,
+                Source = source
+            });
 
-        private class DriverListEntry
+            using var request = CreateRequest(HttpMethod.Post, "/app/saveOrUpdateJson");
+            request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var response = await _http.SendAsync(request, ct);
+            var json = await response.Content.ReadAsStringAsync();
+            var data = JsonConvert.DeserializeObject<HubitatAppSaveResponse>(json);
+            if (data?.Success == true)
+            {
+                var publishedId = data.Id ?? codeId;
+                var operation = codeId.HasValue ? "Updated" : "Created new";
+                var suffix = publishedId.HasValue ? $" app with ID {publishedId.Value}." : " app.";
+
+                return new HubitatPublishResult
+                {
+                    Success = true,
+                    Message = !string.IsNullOrWhiteSpace(data.Message) ? data.Message : $"{operation}{suffix}",
+                    CodeId = publishedId,
+                    PublishedVersion = data.Version ?? version,
+                    CodeKind = HubitatCodeKind.App
+                };
+            }
+
+            var failureMessage = data?.Message;
+            if (!string.IsNullOrWhiteSpace(failureMessage))
+            {
+                return CreateFailure(
+                    HubitatCodeKind.App,
+                    failureMessage!,
+                    $"{requestDetails}\r\nHTTP {(int)response.StatusCode} {response.StatusCode}\r\nRaw response: {FormatDiagnosticText(json)}");
+            }
+
+            return CreateFailure(
+                HubitatCodeKind.App,
+                $"App save failed: {response.StatusCode}",
+                $"{requestDetails}\r\nRaw response: {FormatDiagnosticText(json)}");
+        }
+
+        private async Task<int?> GetCodeVersionAsync(HubitatCodeDescriptor descriptor, int codeId, CancellationToken ct)
+        {
+            using var codeRequest = CreateRequest(HttpMethod.Get, $"{descriptor.EditorBasePath}/ajax/code?id={codeId}");
+            codeRequest.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var codeResponse = await _http.SendAsync(codeRequest, ct);
+            if (!codeResponse.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var codeJson = await codeResponse.Content.ReadAsStringAsync();
+            var codeData = JsonConvert.DeserializeObject<HubitatCodeResponse>(codeJson);
+            return codeData?.Version;
+        }
+
+        private HttpRequestMessage CreateRequest(HttpMethod method, string requestUri)
+        {
+            var request = new HttpRequestMessage(method, requestUri);
+            if (!string.IsNullOrEmpty(_sessionCookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
+            }
+
+            return request;
+        }
+
+        private static int? TryParseCreatedCodeId(HubitatCodeDescriptor descriptor, string? location, string responseBody)
+        {
+            if (!string.IsNullOrWhiteSpace(location))
+            {
+                var locationMatch = Regex.Match(location, $@"{Regex.Escape(descriptor.EditorBasePath)}/editor/(?<id>\d+)", RegexOptions.IgnoreCase);
+                if (locationMatch.Success && int.TryParse(locationMatch.Groups["id"].Value, out int locationId))
+                {
+                    return locationId;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(responseBody))
+            {
+                return null;
+            }
+
+            var variableMatch = Regex.Match(
+                responseBody,
+                $@"global{descriptor.NounCapitalized}IdToEdit\s*=\s*(?<id>\d+)",
+                RegexOptions.IgnoreCase);
+            if (variableMatch.Success && int.TryParse(variableMatch.Groups["id"].Value, out int variableId))
+            {
+                return variableId;
+            }
+
+            return null;
+        }
+
+        private static bool IsCreateAccepted(HttpStatusCode statusCode)
+            => statusCode == HttpStatusCode.OK
+            || statusCode == HttpStatusCode.Created
+            || statusCode == HttpStatusCode.Redirect
+            || statusCode == HttpStatusCode.Found
+            || statusCode == HttpStatusCode.SeeOther;
+
+        private static HubitatCodeDescriptor GetDescriptor(HubitatCodeKind kind) => kind switch
+        {
+            HubitatCodeKind.Driver => new HubitatCodeDescriptor(HubitatCodeKind.Driver, "driver", "Driver", "/hub2/userDeviceTypes", "/driver"),
+            HubitatCodeKind.App => new HubitatCodeDescriptor(HubitatCodeKind.App, "app", "App", "/hub2/userAppTypes", "/app"),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+        };
+
+        private static HubitatPublishResult CreateFailure(HubitatCodeKind kind, string message, string details = "")
+            => new HubitatPublishResult
+            {
+                Success = false,
+                Message = message,
+                Details = details,
+                CodeKind = kind
+            };
+
+        public void Dispose() => _http.Dispose();
+
+        private static string FormatDiagnosticText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "<empty>";
+            }
+
+            const int maxLength = 1200;
+            var trimmed = text.Trim();
+            return trimmed.Length <= maxLength
+                ? trimmed
+                : trimmed.Substring(0, maxLength) + "…";
+        }
+
+        private sealed class HubitatCodeDescriptor
+        {
+            public HubitatCodeDescriptor(
+                HubitatCodeKind kind,
+                string noun,
+                string nounCapitalized,
+                string listEndpoint,
+                string editorBasePath)
+            {
+                Kind = kind;
+                Noun = noun;
+                NounCapitalized = nounCapitalized;
+                ListEndpoint = listEndpoint;
+                EditorBasePath = editorBasePath;
+            }
+
+            public HubitatCodeKind Kind { get; }
+
+            public string Noun { get; }
+
+            public string NounCapitalized { get; }
+
+            public string ListEndpoint { get; }
+
+            public string EditorBasePath { get; }
+        }
+
+        private sealed class HubitatCodeListEntry
         {
             [JsonProperty("id")]
             public int Id { get; set; }
 
             [JsonProperty("name")]
-            public string Name { get; set; }
+            public string Name { get; set; } = string.Empty;
 
             [JsonProperty("namespace")]
-            public string Namespace { get; set; }
+            public string Namespace { get; set; } = string.Empty;
         }
 
-        private class DriverCodeResponse
+        private sealed class HubitatCodeResponse
         {
             [JsonProperty("id")]
             public int Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; } = string.Empty;
 
             [JsonProperty("version")]
             public int Version { get; set; }
 
             [JsonProperty("source")]
-            public string Source { get; set; }
+            public string Source { get; set; } = string.Empty;
 
             [JsonProperty("status")]
-            public string Status { get; set; }
+            public string Status { get; set; } = string.Empty;
         }
 
-        private class DriverUpdateResponse
+        private sealed class HubitatUpdateResponse
         {
             [JsonProperty("id")]
             public int Id { get; set; }
@@ -291,10 +478,37 @@ namespace HubitatVS
             public int Version { get; set; }
 
             [JsonProperty("status")]
-            public string Status { get; set; }
+            public string Status { get; set; } = string.Empty;
 
             [JsonProperty("errorMessage")]
-            public string ErrorMessage { get; set; }
+            public string ErrorMessage { get; set; } = string.Empty;
+        }
+
+        private sealed class HubitatAppSaveRequest
+        {
+            [JsonProperty("id")]
+            public int? Id { get; set; }
+
+            [JsonProperty("version")]
+            public int? Version { get; set; }
+
+            [JsonProperty("source")]
+            public string Source { get; set; } = string.Empty;
+        }
+
+        private sealed class HubitatAppSaveResponse
+        {
+            [JsonProperty("success")]
+            public bool Success { get; set; }
+
+            [JsonProperty("message")]
+            public string Message { get; set; } = string.Empty;
+
+            [JsonProperty("id")]
+            public int? Id { get; set; }
+
+            [JsonProperty("version")]
+            public int? Version { get; set; }
         }
     }
 }

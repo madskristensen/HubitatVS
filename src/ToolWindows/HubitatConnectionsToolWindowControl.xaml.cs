@@ -55,7 +55,11 @@ namespace HubitatVS
         private async void DeleteHub_Click(object sender, RoutedEventArgs e)
         {
             var hub = HubsGrid.SelectedItem as HubitatHubConfig;
-            if (hub == null) return;
+            if (hub == null)
+            {
+                await VS.StatusBar.ShowMessageAsync("Select a hub first.");
+                return;
+            }
 
             var settings = await HubitatHubSettings.GetLiveInstanceAsync();
             var hubs = settings.GetHubs();
@@ -66,7 +70,7 @@ namespace HubitatVS
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
             ClearFormFields();
-            StatusText.Text = $"Hub '{hub.Name}' deleted.";
+            await VS.StatusBar.ShowMessageAsync($"Hub '{hub.Name}' deleted.");
         }
 
         private async void SaveHub_Click(object sender, RoutedEventArgs e)
@@ -76,7 +80,7 @@ namespace HubitatVS
 
             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(host))
             {
-                StatusText.Text = "Name and Host are required.";
+                await VS.StatusBar.ShowMessageAsync("Name and Host are required.");
                 return;
             }
 
@@ -105,7 +109,7 @@ namespace HubitatVS
             settings.SetHubs(hubs);
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
-            StatusText.Text = $"Hub '{name}' saved.";
+            await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
         }
 
         private void ClearForm_Click(object sender, RoutedEventArgs e)

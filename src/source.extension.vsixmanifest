@@ -3,7 +3,7 @@
   <Metadata>
     <Identity Id="HubitatVS.c2faad63-3412-4f74-b17d-e0f8338ae2c8" Version="1.0.1" Language="en-US" Publisher="Mads Kristensen" />
     <DisplayName>Hubitat Publish Tools</DisplayName>
-    <Description>Hubitat driver publishing tools for Visual Studio.</Description>
+    <Description>Hubitat app and driver publishing tools for Visual Studio.</Description>
     <License>Resources\License.txt</License>
     <Icon>Resources\Icon.png</Icon>
     <PreviewImage>Resources\Icon.png</PreviewImage>

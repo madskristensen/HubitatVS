@@ -10,7 +10,7 @@ namespace HubitatVS
     {
         public const string Id = "HubitatVS.c2faad63-3412-4f74-b17d-e0f8338ae2c8";
         public const string Name = "Hubitat Publish Tools";
-        public const string Description = @"Hubitat driver publishing tools for Visual Studio.";
+        public const string Description = @"Hubitat app and driver publishing tools for Visual Studio.";
         public const string Language = "en-US";
         public const string Version = "1.0.1";
         public const string Author = "Mads Kristensen";

@@ -9,13 +9,15 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 
 ## Overview
 
-**Hubitat Publish Tools** is a Visual Studio extension that streamlines the development and publishing of Groovy-based drivers and apps for the Hubitat Elevation platform. Manage hub connections, scan and publish drivers, and handle app deployments directly from Visual Studio.
+**Hubitat Publish Tools** is a Visual Studio extension that streamlines the development and publishing of Groovy-based drivers and apps for the Hubitat Elevation platform. Manage hub connections, classify Groovy source files, and publish drivers or apps directly from Visual Studio.
+
+![Hubitat tool window](art/tool-window.png)
 
 ## ✨ Features
 
 - **Hub Connection Management** — Configure and manage Hubitat hub connections from the Tools menu
-- **Driver Scanner** — Automatically detect driver files in your project
-- **One-Click Publishing** — Publish drivers directly to your Hubitat hub
+- **Groovy Source Classification** — Detect whether a `.groovy` file is a Hubitat driver or app from its source structure
+- **One-Click Publishing** — Publish drivers and apps directly to your Hubitat hub
 - **Connection Validation** — Verify hub connectivity before publishing
 - **Build Integration** — Seamlessly integrated commands for Groovy projects
 
@@ -24,15 +26,11 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 1. Install the extension from the [Visual Studio Marketplace][marketplace]
 2. Go to **Tools > Hubitat > Hub Connections** to configure your hub settings
 3. Enter your hub IP address, maker API token, and authenticate
-4. Right-click on driver files or use commands to publish to your hub
+4. Right-click on a Hubitat `.groovy` file or use commands to publish it to your hub
 
-## Configuration
+If you have more than one connection defined, a dialog shows when you want to publish your driver or app, asking you to chose your connection.
 
-Hub connection settings are managed in **Tools > Options > Hubitat > Hub Connections**. You can:
-
-- Add and manage multiple hub connections
-- Store hub IP addresses and API tokens securely
-- Set a default hub for publishing operations
+![Hubitat connection selector](art/connection-selector.png)
 
 ## Support
 

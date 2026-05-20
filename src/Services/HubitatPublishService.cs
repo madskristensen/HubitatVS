@@ -1,8 +1,10 @@
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace HubitatVS
 {
@@ -12,7 +14,7 @@ namespace HubitatVS
         public static async Task PublishFileAsync(string filePath)
         {
             var pane = await HubitatOutput.GetPaneAsync();
-            pane?.Activate();
+            await ActivatePaneAsync(pane);
 
             await VS.StatusBar.ShowMessageAsync("Publishing to Hubitat…");
 
@@ -53,12 +55,13 @@ namespace HubitatVS
         public static async Task PublishFilesAsync(IList<string> filePaths, HubitatHubConfig hub)
         {
             var pane = await HubitatOutput.GetPaneAsync();
-            pane?.Activate();
+            await ActivatePaneAsync(pane);
 
-            await VS.StatusBar.ShowMessageAsync($"Publishing to Hubitat ({hub.Name})\u2026");
+            await VS.StatusBar.ShowMessageAsync($"Publishing to Hubitat ({hub.Name})…");
 
             var timestamp = DateTime.Now.ToString("HH:mm:ss");
-            pane?.OutputStringThreadSafe(
+            await WriteToPaneAsync(
+                pane,
                 $"[{timestamp}] Publishing {filePaths.Count} file(s) to {hub.Name} ({hub.Host})\r\n");
 
             var ct = CancellationToken.None;
@@ -72,45 +75,84 @@ namespace HubitatVS
                 var filePath = filePaths[i];
                 var fileName = Path.GetFileName(filePath);
 
-                await VS.StatusBar.ShowProgressAsync($"Publishing {fileName}\u2026", i + 1, filePaths.Count);
+                await VS.StatusBar.ShowProgressAsync($"Publishing {fileName}…", i + 1, filePaths.Count);
 
                 string source;
                 try
                 {
-                    source = await System.Threading.Tasks.Task.Run(() => File.ReadAllText(filePath), ct);
+                    source = await Task.Run(() => File.ReadAllText(filePath), ct);
                 }
                 catch (Exception ex)
                 {
                     await ex.LogAsync();
-                    pane?.OutputStringThreadSafe($"  \u2717 {fileName}: Could not read file \u2014 {ex.Message}\r\n");
+                    await WriteToPaneAsync(pane, $"  ✗ {fileName}: Could not read file — {ex.Message}\r\n");
                     failCount++;
                     continue;
                 }
 
+                var candidate = HubitatGroovyAnalyzer.AnalyzeSource(source, filePath);
+
                 HubitatPublishResult result;
                 try
                 {
-                    result = await client.PublishDriverAsync(source, ct);
+                    result = await client.PublishAsync(candidate, source, ct);
                 }
                 catch (Exception ex)
                 {
                     await ex.LogAsync();
-                    result = new HubitatPublishResult { Success = false, Message = $"[{ex.GetType().Name}] {ex.Message}" };
+                    result = new HubitatPublishResult
+                    {
+                        Success = false,
+                        Message = $"[{ex.GetType().Name}] {ex.Message}",
+                        Details = BuildExceptionDetails(ex)
+                    };
                 }
 
-                var icon = result.Success ? "\u2713" : "\u2717";
-                pane?.OutputStringThreadSafe($"  {icon} {fileName}: {result.Message}\r\n");
+                var icon = result.Success ? "✓" : "✗";
+                var versionSuffix = result.Success && result.PublishedVersion.HasValue
+                    ? $" (version {result.PublishedVersion.Value})"
+                    : string.Empty;
+                await WriteToPaneAsync(pane, $"  {icon} {fileName}: {result.Message}{versionSuffix}\r\n");
+                if (!result.Success && !string.IsNullOrWhiteSpace(result.Details))
+                {
+                    await WriteToPaneAsync(pane, $"    {result.Details.Replace("\r\n", "\r\n    ")}\r\n");
+                }
 
                 if (result.Success) successCount++; else failCount++;
             }
 
-            pane?.OutputStringThreadSafe($"Done: {successCount} succeeded, {failCount} failed.\r\n\r\n");
+            await WriteToPaneAsync(pane, $"Done: {successCount} succeeded, {failCount} failed.\r\n\r\n");
 
             var summary = filePaths.Count == 1
-                ? (successCount == 1 ? $"\u2713 Published to {hub.Name}" : $"\u2717 Publish to {hub.Name} failed")
+                ? (successCount == 1 ? $"✓ Published to {hub.Name}" : $"✗ Publish to {hub.Name} failed")
                 : $"Published to {hub.Name}: {successCount}/{filePaths.Count} succeeded";
 
             await VS.StatusBar.ShowMessageAsync(summary);
+        }
+
+        private static async Task ActivatePaneAsync(IVsOutputWindowPane? pane)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            pane?.Activate();
+        }
+
+        private static async Task WriteToPaneAsync(IVsOutputWindowPane? pane, string message)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            pane?.OutputStringThreadSafe(message);
+        }
+
+        private static string BuildExceptionDetails(Exception ex)
+        {
+            var parts = new List<string>();
+            var current = ex.InnerException;
+            while (current != null)
+            {
+                parts.Add($"Inner: [{current.GetType().Name}] {current.Message}");
+                current = current.InnerException;
+            }
+
+            return parts.Count == 0 ? string.Empty : string.Join("\r\n", parts);
         }
     }
 }
