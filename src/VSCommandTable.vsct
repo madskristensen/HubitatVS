@@ -24,7 +24,7 @@
 				<Parent guid="VSMainMenu" id="Tools.ExternalToolsGroup" />
 				<Icon guid="Icons" id="Logo" />
 				<Strings>
-					<ButtonText>Hubitat Connections...</ButtonText>
+					<ButtonText>Hubitat Connections</ButtonText>
 					<LocCanonicalName>.HubitatVS.ShowHubitatConnectionsToolWindowCommand</LocCanonicalName>
 				</Strings>
 			</Button>
@@ -34,7 +34,7 @@
 				<Icon guid="Icons" id="Logo" />
 				<CommandFlag>DynamicVisibility</CommandFlag>
 				<Strings>
-					<ButtonText>Publish to Hubitat...</ButtonText>
+					<ButtonText>Publish to Hubitat</ButtonText>
 					<LocCanonicalName>.HubitatVS.PublishToHubitatCommand</LocCanonicalName>
 				</Strings>
 			</Button>
