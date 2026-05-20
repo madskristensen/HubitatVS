@@ -3,7 +3,7 @@
 <!-- Version: 14.0.50929.2 -->
 <ImageManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://schemas.microsoft.com/VisualStudio/ImageManifestSchema/2014">
   <Symbols>
-    <String Name="Resources" Value="/HubitatVS;Component/Icons" />
+    <String Name="Resources" Value="/HubitatVS;Component/Resources/Icons" />
     <Guid Name="MonikersGuid" Value="{3b6d4b18-2382-4761-b792-00ea3526509b}" />
     <ID Name="logo" Value="1" />
   </Symbols>

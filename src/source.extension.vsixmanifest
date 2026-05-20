@@ -6,8 +6,6 @@
     <Description>Hubitat driver publishing tools for Visual Studio.</Description>
     <Icon>Resources\Icon.png</Icon>
     <PreviewImage>Resources\Icon.png</PreviewImage>
-    <License>Resources\License.txt</License>
-    <MoreInfo>https://github.com/madskristensen/HubitatVS/</MoreInfo>
     <Tags>hubitat, smart home, automation</Tags>
   </Metadata>
   <Installation>
