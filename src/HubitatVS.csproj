@@ -59,6 +59,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Content Include="..\LICENSE.txt" Link="Resources\LICENSE.txt" />
     <content Include="Monikers.imagemanifest">
       <IncludeInVSIX>true</IncludeInVSIX>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
