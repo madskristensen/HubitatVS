@@ -5,6 +5,16 @@
     "internalName": "HubitatVS",
     "tags": [ "automation", "smart home", "groovy", "hubitat" ]
   },
+  "assetFiles": [
+    {
+      "pathOnDisk": "art/tool-window.png",
+      "targetPath": "art/tool-window.png"
+    },
+    {
+      "pathOnDisk": "art/connection-selector.png",
+      "targetPath": "art/connection-selector.png"
+    }
+  ],
   "overview": "README.md",
   "publisher": "MadsKristensen",
   "repo": "https://github.com/madskristensen/HubitatVS"
