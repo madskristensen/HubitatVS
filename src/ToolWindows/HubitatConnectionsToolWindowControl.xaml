@@ -55,8 +55,6 @@
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.SystemHighlightBrushKey}}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.SystemHighlightTextBrushKey}}"/>
-                                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.SystemHighlightBrushKey}}"/>
-                                <Setter Property="BorderThickness" Value="1"/>
                             </Trigger>
                         </Style.Triggers>
                     </Style>
@@ -84,7 +82,7 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Ellipse Width="10" Height="10" Margin="0,0,4,0">
+                                    <Ellipse Width="10" Height="10" Margin="3,0,4,0">
                                         <Ellipse.Fill>
                                             <SolidColorBrush Color="{Binding StatusColor}"/>
                                         </Ellipse.Fill>

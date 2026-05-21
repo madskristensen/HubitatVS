@@ -17,6 +17,10 @@
     {
       "pathOnDisk": "art/connection-selector.png",
       "targetPath": "art/connection-selector.png"
+    },
+    {
+      "pathOnDisk": "art/adornment.png",
+      "targetPath": "art/adornment.png"
     }
   ],
   "overview": "README.md",

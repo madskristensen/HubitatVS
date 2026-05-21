@@ -1,19 +1,15 @@
-using Microsoft.VisualStudio.OLE.Interop;
-using Microsoft.VisualStudio.PlatformUI;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
-using Microsoft.VisualStudio.Text;
-using Microsoft.VisualStudio.Text.Editor;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.VisualStudio.PlatformUI;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Text;
+using Microsoft.VisualStudio.Text.Editor;
 
 namespace HubitatVS
 {
@@ -334,7 +330,7 @@ namespace HubitatVS
                 line.SetResourceReference(TextBlock.FontSizeProperty, VsFonts.EnvironmentFontSizeKey);
 
                 if (entry.Found && entry.UsedByNames.Count > 0)
-                    ToolTipService.SetToolTip(line, string.Join(", ", entry.UsedByNames));
+                    ToolTipService.SetToolTip(line, new ToolTip() { Content = string.Join(", ", entry.UsedByNames) });
 
                 _textStack.Children.Add(line);
             }

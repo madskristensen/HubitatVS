@@ -32,7 +32,7 @@ namespace HubitatVS
             await ApplyTrackerStatusesAsync();
         }
 
-        private async Task TestConnectionAsync(HubitatHubViewModel hubVm)
+        public async Task<bool> TestConnectionAsync(HubitatHubViewModel hubVm)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             hubVm.Status = ConnectionStatus.Testing;
@@ -57,6 +57,8 @@ namespace HubitatVS
                 {
                     await WriteToPaneAsync(pane, $"❌ Failed to connect to {hubVm.Hub.Name}\r\n");
                 }
+
+                return connected;
             }
             catch (Exception ex)
             {
@@ -65,6 +67,7 @@ namespace HubitatVS
                 hubVm.Status = ConnectionStatus.Disconnected;
                 hubVm.StatusMessage = "Not connected";
                 await WriteToPaneAsync(pane, $"❌ Failed to connect to {hubVm.Hub.Name}: {ex.GetBaseException().Message}\r\n");
+                return false;
             }
         }
 

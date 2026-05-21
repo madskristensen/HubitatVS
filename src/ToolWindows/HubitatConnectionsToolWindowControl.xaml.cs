@@ -70,13 +70,7 @@ namespace HubitatVS
             await VS.StatusBar.ShowMessageAsync($"Testing connection to {hubVm.Hub.Name}\u2026");
             try
             {
-                hubVm.Status = ConnectionStatus.Testing;
-                hubVm.StatusMessage = "Testing…";
-
-                bool ok = await HubitatConnectionTracker.TestConnectionAsync(hubVm.Hub);
-
-                hubVm.Status = ok ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
-                hubVm.StatusMessage = ok ? "Connected" : "Failed";
+                bool ok = await ViewModel.TestConnectionAsync(hubVm);
 
                 var msg = ok
                     ? $"\u2713 Connected to {hubVm.Hub.Name} ({hubVm.Hub.Host})"
@@ -158,8 +152,21 @@ namespace HubitatVS
             settings.SetHubs(hubs);
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
-            HubitatConnectionTracker.NotifyConfigChanged();
-            await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
+
+            var savedHubVm = ViewModel.Hubs.FirstOrDefault(h =>
+                string.Equals(h.Hub.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (savedHubVm != null)
+            {
+                await VS.StatusBar.ShowMessageAsync($"Testing connection to {savedHubVm.Hub.Name}...");
+                bool ok = await ViewModel.TestConnectionAsync(savedHubVm);
+                await VS.StatusBar.ShowMessageAsync(ok
+                    ? $"Connected to {savedHubVm.Hub.Name} ({savedHubVm.Hub.Host})"
+                    : $"Could not connect to {savedHubVm.Hub.Host}");
+            }
+            else
+            {
+                await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
+            }
         }
 
         private void ClearForm_Click(object sender, RoutedEventArgs e)

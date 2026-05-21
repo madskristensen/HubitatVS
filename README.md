@@ -20,6 +20,7 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 - **One-Click Publishing** — Publish drivers and apps directly to your Hubitat hub
 - **Compare with Hub** — Diff your local Groovy file against the version currently on the hub using Visual Studio's built-in diff viewer
 - **Connection Validation** — Verify hub connectivity before publishing
+- **Editor Adornment Status** — View connected hub publish state directly in the editor (in sync, differs, or not published)
 - **Build Integration** — Seamlessly integrated commands for Groovy projects
 
 ## Getting Started
@@ -32,6 +33,12 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 If you have more than one connection defined, a dialog shows when you want to publish your driver or app, asking you to chose your connection.
 
 ![Hubitat connection selector](art/connection-selector.png)
+
+## Editor adornment
+
+When you open a Hubitat `.groovy` file, an editor adornment appears in the bottom-right corner and shows publish status for connected hubs, so you can quickly see whether the local file is in sync with the hub version.
+
+![Hubitat editor adornment](art/adornment.png)
 
 ## Compare with hub version
 
