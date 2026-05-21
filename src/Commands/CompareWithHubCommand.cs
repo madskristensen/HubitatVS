@@ -68,27 +68,13 @@ namespace HubitatVS
                 return;
             }
 
-            // If multiple connections, let user choose (dialog requires UI thread)
-            HubitatHubConfig hub;
-            if (hubs.Count == 1)
-            {
-                hub = hubs[0];
-            }
-            else
-            {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                var dialog = new HubitatHubPickerDialog(hubs);
-                if (dialog.ShowModal() != true || dialog.SelectedHub == null)
-                    return;
-                hub = dialog.SelectedHub;
-            }
+            var hub = await HubitatHubSelectionService.SelectHubAsync(hubs);
+            if (hub == null)
+                return;
 
-            await WriteToPaneAsync(pane, $"Connecting to hub {hub.Name}...\r\n");
+            await WriteToPaneAsync(pane, $"Testing connection to hub {hub.Name}...\r\n");
 
-            using var client = new HubitatHubClient(hub);
-
-            // Test connection
-            var connected = await client.TestConnectionAsync();
+            var connected = await HubitatHubSelectionService.TestConnectionAsync(hub);
             if (!connected)
             {
                 await VS.MessageBox.ShowErrorAsync(
@@ -98,6 +84,8 @@ namespace HubitatVS
             }
 
             await WriteToPaneAsync(pane, $"Searching for {candidate.Kind.ToString().ToLower()} '{candidate.DisplayName}'...\r\n");
+
+            using var client = new HubitatHubClient(hub);
 
             // Find the code on the hub
             var matches = await client.GetNamespaceMatchesAsync(candidate.Kind, candidate.NamespaceName);

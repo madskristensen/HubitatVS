@@ -30,25 +30,9 @@ namespace HubitatVS
                 return;
             }
 
-            HubitatHubConfig hub;
-            if (hubs.Count == 1)
-            {
-                hub = hubs[0];
-            }
-            else if (HubitatHubPickerDialog.SessionHub != null)
-            {
-                // Use the hub the user pinned for this session, but verify it's still in the list.
-                hub = hubs.Find(h => string.Equals(h.Name, HubitatHubPickerDialog.SessionHub.Name, StringComparison.Ordinal))
-                      ?? HubitatHubPickerDialog.SessionHub;
-            }
-            else
-            {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                var dialog = new HubitatHubPickerDialog(hubs);
-                if (dialog.ShowModal() != true || dialog.SelectedHub == null)
-                    return;
-                hub = dialog.SelectedHub;
-            }
+            var hub = await HubitatHubSelectionService.SelectHubAsync(hubs);
+            if (hub == null)
+                return;
 
             await PublishFilesAsync(new[] { filePath }, hub);
         }

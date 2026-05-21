@@ -127,6 +127,24 @@ namespace HubitatVS
             HubsChanged?.Invoke(null, EventArgs.Empty);
         }
 
+        /// <summary>Removes cached state for a single hub without resetting all hubs.</summary>
+        public static void RemoveHub(string hubName)
+        {
+            if (string.IsNullOrWhiteSpace(hubName))
+                return;
+
+            bool changed;
+            lock (_lock)
+            {
+                var removedStatus = _status.Remove(hubName);
+                var removedTesting = _testing.Remove(hubName);
+                changed = removedStatus || removedTesting;
+            }
+
+            if (changed)
+                HubsChanged?.Invoke(null, EventArgs.Empty);
+        }
+
         /// <summary>Signals that hub-side code data changed and dependents should refresh.</summary>
         public static void NotifyHubDataChanged()
             => HubsChanged?.Invoke(null, EventArgs.Empty);

@@ -31,10 +31,7 @@ namespace HubitatVS
         private readonly Border _element;
         private readonly StackPanel _textStack;
 
-        private CancellationTokenSource _cts = new CancellationTokenSource();
-        private int _refreshVersion;
-        private int _refreshInProgress;
-        private int _refreshQueued;
+        private readonly HubitatRefreshCoordinator _refreshCoordinator;
         private bool _pendingInitialLayoutRefresh = true;
 
         private const double RightMargin = 10.0;
@@ -85,6 +82,8 @@ namespace HubitatVS
 
             _layer.AddAdornment(AdornmentPositioningBehavior.OwnerControlled, null, null, _element, null);
 
+            _refreshCoordinator = new HubitatRefreshCoordinator(LoadAsync);
+
             _element.PreviewMouseRightButtonUp += OnAdornmentRightClick;
             _textView.LayoutChanged += OnLayoutChanged;
             _document.FileActionOccurred += OnDocumentFileActionOccurred;
@@ -116,7 +115,7 @@ namespace HubitatVS
             _document.FileActionOccurred -= OnDocumentFileActionOccurred;
             _textView.Closed -= OnViewClosed;
             HubitatConnectionTracker.HubsChanged -= OnHubsChanged;
-            _cts.Cancel();
+            _refreshCoordinator.Dispose();
         }
 
         private void OnHubsChanged(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
@@ -149,36 +148,7 @@ namespace HubitatVS
         }
 
         private void TriggerRefresh(bool cancelRunning = true)
-        {
-            if (!cancelRunning && Volatile.Read(ref _refreshInProgress) == 1)
-            {
-                Interlocked.Exchange(ref _refreshQueued, 1);
-                return;
-            }
-
-            var newVersion = Interlocked.Increment(ref _refreshVersion);
-            var newCts = new CancellationTokenSource();
-            var old = Interlocked.Exchange(ref _cts, newCts);
-            old.Cancel();
-            Interlocked.Exchange(ref _refreshInProgress, 1);
-            _ = ThreadHelper.JoinableTaskFactory.RunAsync(() => RunLoadAsync(newVersion, newCts.Token));
-        }
-
-        private async Task RunLoadAsync(int refreshVersion, CancellationToken ct)
-        {
-            try
-            {
-                await LoadAsync(refreshVersion, ct);
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _refreshInProgress, 0);
-                if (Interlocked.Exchange(ref _refreshQueued, 0) == 1 && !_textView.IsClosed)
-                {
-                    TriggerRefresh(cancelRunning: false);
-                }
-            }
-        }
+            => _refreshCoordinator.RequestRefresh(cancelRunning);
 
         private bool UpdatePosition()
         {
@@ -253,10 +223,17 @@ namespace HubitatVS
                     .Where(h => HubitatConnectionTracker.GetConnected(h.Name) == true)
                     .ToList();
 
+                var hasPendingHubState = hubs.Any(h =>
+                    HubitatConnectionTracker.IsTesting(h.Name) || HubitatConnectionTracker.GetConnected(h.Name) == null);
+
                 if (connectedHubs.Count == 0)
                 {
+                    // Keep the current adornment visible while connection state is still being established.
+                    if (hasPendingHubState)
+                        return;
+
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
-                    if (refreshVersion == Volatile.Read(ref _refreshVersion))
+                    if (refreshVersion == _refreshCoordinator.CurrentVersion)
                         _element.Visibility = Visibility.Hidden;
                     return;
                 }
@@ -279,18 +256,17 @@ namespace HubitatVS
                     }
                 }));
 
-                if (_textView.IsClosed || refreshVersion != Volatile.Read(ref _refreshVersion)) return;
+                if (_textView.IsClosed || refreshVersion != _refreshCoordinator.CurrentVersion) return;
 
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
 
-                if (_textView.IsClosed || refreshVersion != Volatile.Read(ref _refreshVersion))
+                if (_textView.IsClosed || refreshVersion != _refreshCoordinator.CurrentVersion)
                     return;
 
                 var hasContent = Render(results, connectedHubs.Count > 1);
-                _element.Visibility = Visibility.Hidden;
                 _element.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (_textView.IsClosed || refreshVersion != Volatile.Read(ref _refreshVersion))
+                    if (_textView.IsClosed || refreshVersion != _refreshCoordinator.CurrentVersion)
                         return;
 
                     _element.Visibility = hasContent && UpdatePosition()
@@ -330,7 +306,7 @@ namespace HubitatVS
                 line.SetResourceReference(TextBlock.FontSizeProperty, VsFonts.EnvironmentFontSizeKey);
 
                 if (entry.Found && entry.UsedByNames.Count > 0)
-                    ToolTipService.SetToolTip(line, new ToolTip() { Content = string.Join(", ", entry.UsedByNames) });
+                    ToolTipService.SetToolTip(line, string.Join(", ", entry.UsedByNames));
 
                 _textStack.Children.Add(line);
             }

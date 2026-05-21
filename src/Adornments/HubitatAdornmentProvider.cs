@@ -14,7 +14,7 @@ namespace HubitatVS
     {
         [Export(typeof(AdornmentLayerDefinition))]
         [Name("HubitatAdornment")]
-        [Order(After = PredefinedAdornmentLayers.Selection, Before = PredefinedAdornmentLayers.Squiggle)]
+        [Order(After = PredefinedAdornmentLayers.Text, Before = PredefinedAdornmentLayers.Caret)]
 #pragma warning disable 649
         internal AdornmentLayerDefinition _adornmentLayerDefinition;
 #pragma warning restore 649

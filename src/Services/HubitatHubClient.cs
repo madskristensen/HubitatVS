@@ -26,17 +26,40 @@ namespace HubitatVS
                 AllowAutoRedirect = false,
                 UseCookies = false
             };
-            var host = config.Host ?? string.Empty;
-            if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-                host = host.Substring(7);
-            else if (host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                host = host.Substring(8);
-            host = host.TrimEnd('/');
+            var baseAddress = BuildBaseAddress(config.Host);
 
             _http = new HttpClient(handler)
             {
-                BaseAddress = new Uri($"http://{host}")
+                BaseAddress = baseAddress
             };
+        }
+
+        private static Uri BuildBaseAddress(string? host)
+        {
+            var value = (host ?? string.Empty).Trim();
+            if (value.Length == 0)
+                throw new ArgumentException("Hub host is required.", nameof(host));
+
+            if (!value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                value = "https://" + value;
+            }
+
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var parsed) ||
+                (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new ArgumentException("Hub host must be a valid HTTP or HTTPS URL.", nameof(host));
+            }
+
+            var builder = new UriBuilder(parsed)
+            {
+                Path = string.Empty,
+                Query = string.Empty,
+                Fragment = string.Empty
+            };
+
+            return builder.Uri;
         }
 
         public async Task<bool> TestConnectionAsync(CancellationToken ct = default)

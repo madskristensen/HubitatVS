@@ -111,7 +111,7 @@ namespace HubitatVS
             settings.SetHubs(hubs);
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
-            HubitatConnectionTracker.NotifyConfigChanged();
+            HubitatConnectionTracker.RemoveHub(hub.Name);
             ClearFormFields();
             await VS.StatusBar.ShowMessageAsync($"Hub '{hub.Name}' deleted.");
         }
