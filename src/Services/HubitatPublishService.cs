@@ -161,6 +161,11 @@ namespace HubitatVS
 
             await VS.StatusBar.ShowMessageAsync(summary);
 
+            if (successCount > 0)
+            {
+                HubitatConnectionTracker.NotifyHubDataChanged();
+            }
+
             if (failCount == 0)
             {
                 _ratingPrompt.RegisterSuccessfulUsage();

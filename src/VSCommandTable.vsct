@@ -16,6 +16,11 @@
           <CommandName>Hubitat</CommandName>
         </Strings>
       </Menu>
+      <Menu guid="HubitatVS" id="HubitatAdornmentContextMenu" type="Context">
+        <Strings>
+          <CommandName>HubitatAdornmentContextMenu</CommandName>
+        </Strings>
+      </Menu>
     </Menus>
 
     <Groups>
@@ -27,6 +32,9 @@
       </Group>
       <Group guid="HubitatVS" id="HubitatContextMenuFlyoutGroup" priority="0x0100">
         <Parent guid="HubitatVS" id="HubitatContextMenuFlyout"/>
+      </Group>
+      <Group guid="HubitatVS" id="HubitatAdornmentContextMenuGroup" priority="0x0100">
+        <Parent guid="HubitatVS" id="HubitatAdornmentContextMenu"/>
       </Group>
     </Groups>
 
@@ -60,7 +68,7 @@
         <CommandFlag>DynamicVisibility</CommandFlag>
         <CommandFlag>IconIsMoniker</CommandFlag>
         <Strings>
-          <ButtonText>Compare with hub version...</ButtonText>
+          <ButtonText>Compare with hub version</ButtonText>
           <LocCanonicalName>.HubitatVS.CompareWithHubCommand</LocCanonicalName>
         </Strings>
       </Button>
@@ -70,6 +78,12 @@
   <CommandPlacements>
     <CommandPlacement guid="HubitatVS" id="HubitatContextMenuFlyout" priority="0x0100">
       <Parent guid="VSMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
+    </CommandPlacement>
+    <CommandPlacement guid="HubitatVS" id="PublishToHubitatCommand" priority="0x0100">
+      <Parent guid="HubitatVS" id="HubitatAdornmentContextMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="HubitatVS" id="CompareWithHubCommand" priority="0x0200">
+      <Parent guid="HubitatVS" id="HubitatAdornmentContextMenuGroup"/>
     </CommandPlacement>
   </CommandPlacements>
 
@@ -86,6 +100,8 @@
       <IDSymbol name="HubitatContextMenuFlyout" value="0x0104" />
       <IDSymbol name="HubitatContextMenuFlyoutGroup" value="0x0105" />
       <IDSymbol name="CompareWithHubCommand" value="0x0106" />
+      <IDSymbol name="HubitatAdornmentContextMenu" value="0x0107" />
+      <IDSymbol name="HubitatAdornmentContextMenuGroup" value="0x0108" />
     </GuidSymbol>
 
     <GuidSymbol name="guidWorkspaceExplorerToolWindowPackageCmdSet" value="{cfb400f1-5c60-4f3c-856e-180d28def0b7}">

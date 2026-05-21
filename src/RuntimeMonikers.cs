@@ -1,11 +1,8 @@
+using System.Threading;
+using System.Windows.Media.Imaging;
 using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Imaging.Interop;
-using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
 
 namespace HubitatVS
 {
@@ -26,7 +23,7 @@ namespace HubitatVS
             if (imageService == null)
                 throw new InvalidOperationException("Could not acquire SVsImageService.");
 
-            var image = new BitmapImage(new Uri("pack://application:,,,/HubitatVS;component/Resources/Icons/logo.16.16.png", UriKind.Absolute));
+            var image = new BitmapImage(new Uri("pack://application:,,,/HubitatVS;component/Resources/Icons/logo.24.24.png", UriKind.Absolute));
             image.Freeze();
 
             _hubitatLogoHandle = imageService.AddCustomImage(image, canTheme: false);

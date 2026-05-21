@@ -9,6 +9,7 @@ namespace HubitatVS
     public partial class HubitatConnectionsToolWindowControl : UserControl
     {
         private static bool _testedThisSession;
+        private bool _trackerSubscribed;
         private string _pendingHubPassword = string.Empty;
 
         public HubitatConnectionsToolWindowControl()
@@ -17,6 +18,12 @@ namespace HubitatVS
             DataContext = new HubitatConnectionsViewModel();
             Loaded += async (s, e) =>
             {
+                if (!_trackerSubscribed)
+                {
+                    HubitatConnectionTracker.HubsChanged += OnTrackerChanged;
+                    _trackerSubscribed = true;
+                }
+
                 await ViewModel.ReloadHubsAsync();
                 if (!_testedThisSession)
                 {
@@ -24,9 +31,32 @@ namespace HubitatVS
                     await ViewModel.TestAllConnectionsAsync();
                 }
             };
+            Unloaded += (s, e) =>
+            {
+                if (_trackerSubscribed)
+                {
+                    HubitatConnectionTracker.HubsChanged -= OnTrackerChanged;
+                    _trackerSubscribed = false;
+                }
+            };
         }
 
         private HubitatConnectionsViewModel ViewModel => (HubitatConnectionsViewModel)DataContext;
+
+        private void OnTrackerChanged(object sender, EventArgs e)
+        {
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    await ViewModel.ApplyTrackerStatusesAsync();
+                }
+                catch (Exception ex)
+                {
+                    ex.Log();
+                }
+            });
+        }
 
         private async void TestConnection_Click(object sender, RoutedEventArgs e)
         {
@@ -43,8 +73,7 @@ namespace HubitatVS
                 hubVm.Status = ConnectionStatus.Testing;
                 hubVm.StatusMessage = "Testing…";
 
-                using var client = new HubitatHubClient(hubVm.Hub);
-                bool ok = await client.TestConnectionAsync();
+                bool ok = await HubitatConnectionTracker.TestConnectionAsync(hubVm.Hub);
 
                 hubVm.Status = ok ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
                 hubVm.StatusMessage = ok ? "Connected" : "Failed";
@@ -88,6 +117,7 @@ namespace HubitatVS
             settings.SetHubs(hubs);
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
+            HubitatConnectionTracker.NotifyConfigChanged();
             ClearFormFields();
             await VS.StatusBar.ShowMessageAsync($"Hub '{hub.Name}' deleted.");
         }
@@ -128,6 +158,7 @@ namespace HubitatVS
             settings.SetHubs(hubs);
             await settings.SaveAsync();
             await ViewModel.ReloadHubsAsync();
+            HubitatConnectionTracker.NotifyConfigChanged();
             await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
         }
 

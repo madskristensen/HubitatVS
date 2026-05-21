@@ -85,14 +85,15 @@ namespace HubitatVS
                 return HubitatCodeKind.Driver;
             }
 
+            var hasMetadata = source.IndexOf("metadata", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (hasMetadata && DriverHintRegex.IsMatch(source))
+            {
+                return HubitatCodeKind.Driver;
+            }
+
             if (definition.Success)
             {
                 return HubitatCodeKind.App;
-            }
-
-            if (source.IndexOf("metadata", StringComparison.OrdinalIgnoreCase) >= 0 && DriverHintRegex.IsMatch(source))
-            {
-                return HubitatCodeKind.Driver;
             }
 
             if (AppHintRegex.IsMatch(source))

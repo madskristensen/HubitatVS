@@ -184,11 +184,7 @@ namespace HubitatVS
             var list = JsonConvert.DeserializeObject<List<HubitatCodeListEntry>>(json);
             if (list == null) return null;
 
-            // Only return an exact match on BOTH name AND namespace
-            var exactMatch = list.FirstOrDefault(entry =>
-                string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase) &&
-                (string.IsNullOrEmpty(namespaceName) || string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase)));
-
+            var exactMatch = FindExactMatch(list, name, namespaceName);
             return exactMatch?.Id;
         }
 
@@ -474,7 +470,77 @@ namespace HubitatVS
                 CodeKind = kind
             };
 
+        /// <summary>Fetches hub metadata for the viewport adornment.</summary>
+        public async Task<HubitatHubInfoEntry> GetAdornmentInfoAsync(
+            HubitatCodeKind kind,
+            string name,
+            string namespaceName,
+            string localSource,
+            CancellationToken ct = default)
+        {
+            await EnsureAuthenticatedAsync(ct);
+            var descriptor = GetDescriptor(kind);
+
+            using var listRequest = CreateRequest(HttpMethod.Get, descriptor.ListEndpoint);
+            listRequest.Headers.TryAddWithoutValidation("Accept", "application/json");
+            var listResponse = await _http.SendAsync(listRequest, ct);
+            if (!listResponse.IsSuccessStatusCode)
+                return new HubitatHubInfoEntry { HubName = _config.Name, Kind = kind, ConnectionError = true };
+
+            var listJson = await listResponse.Content.ReadAsStringAsync();
+            var entries = JsonConvert.DeserializeObject<List<HubitatCodeListEntry>>(listJson);
+            var match = entries == null ? null : FindExactMatch(entries, name, namespaceName);
+
+            if (match == null)
+                return new HubitatHubInfoEntry { HubName = _config.Name, Found = false, Kind = kind };
+
+            var detailPath = $"{descriptor.EditorBasePath}/list/single/data/{match.Id}";
+            using var detailRequest = CreateRequest(HttpMethod.Get, detailPath);
+            detailRequest.Headers.TryAddWithoutValidation("Accept", "application/json");
+            var detailResponse = await _http.SendAsync(detailRequest, ct);
+            if (!detailResponse.IsSuccessStatusCode)
+                return new HubitatHubInfoEntry { HubName = _config.Name, Found = false, Kind = kind, ConnectionError = true };
+
+            var detailJson = await detailResponse.Content.ReadAsStringAsync();
+            var trimmedDetailJson = detailJson?.TrimStart();
+            var detail = trimmedDetailJson != null && trimmedDetailJson.StartsWith("[", StringComparison.Ordinal)
+                ? JsonConvert.DeserializeObject<List<HubitatCodeDetailEntry>>(detailJson)?.FirstOrDefault()
+                : JsonConvert.DeserializeObject<HubitatCodeDetailEntry>(detailJson);
+            if (detail == null)
+                return new HubitatHubInfoEntry { HubName = _config.Name, Found = false, Kind = kind, ConnectionError = true };
+
+            DateTimeOffset? lastModified = null;
+            if (!string.IsNullOrEmpty(match.LastModified) &&
+                DateTimeOffset.TryParse(match.LastModified, out var lm))
+                lastModified = lm;
+
+            var count = kind == HubitatCodeKind.Driver
+                ? (detail.InstalledDriverCount ?? 0)
+                : (detail.InstalledAppCount ?? 0);
+
+            return new HubitatHubInfoEntry
+            {
+                HubName = _config.Name,
+                Found = true,
+                CodeId = match.Id,
+                Version = detail.Version,
+                InstalledCount = count,
+                Kind = kind,
+                LastModified = lastModified,
+                IsInSync = NormalizeSource(detail.Source) == NormalizeSource(localSource),
+                UsedByNames = match.UsedBy?.Select(u => u.Name).ToArray() ?? Array.Empty<string>(),
+            };
+        }
+
         public void Dispose() => _http.Dispose();
+
+        private static HubitatCodeListEntry FindExactMatch(
+            IEnumerable<HubitatCodeListEntry> entries,
+            string name,
+            string namespaceName)
+            => entries.FirstOrDefault(entry =>
+                string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrEmpty(namespaceName) || string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase)));
 
         private static string NormalizeSource(string? source)
             => (source ?? string.Empty).Replace("\r\n", "\n").Trim();
@@ -530,6 +596,39 @@ namespace HubitatVS
 
             [JsonProperty("namespace")]
             public string Namespace { get; set; } = string.Empty;
+
+            [JsonProperty("lastModified")]
+            public string LastModified { get; set; } = string.Empty;
+
+            [JsonProperty("usedBy")]
+            public List<HubitatUsedByEntry> UsedBy { get; set; } = new List<HubitatUsedByEntry>();
+        }
+
+        private sealed class HubitatUsedByEntry
+        {
+            [JsonProperty("id")]
+            public int Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; } = string.Empty;
+        }
+
+        private sealed class HubitatCodeDetailEntry
+        {
+            [JsonProperty("id")]
+            public int Id { get; set; }
+
+            [JsonProperty("version")]
+            public int Version { get; set; }
+
+            [JsonProperty("source")]
+            public string Source { get; set; } = string.Empty;
+
+            [JsonProperty("installedDriverCount")]
+            public int? InstalledDriverCount { get; set; }
+
+            [JsonProperty("installedAppCount")]
+            public int? InstalledAppCount { get; set; }
         }
 
         private sealed class HubitatCodeResponse
