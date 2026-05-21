@@ -8,6 +8,7 @@ namespace HubitatVS
 {
     public partial class HubitatConnectionsToolWindowControl : UserControl
     {
+        private static bool _testedThisSession;
         private string _pendingHubPassword = string.Empty;
 
         public HubitatConnectionsToolWindowControl()
@@ -17,7 +18,11 @@ namespace HubitatVS
             Loaded += async (s, e) =>
             {
                 await ViewModel.ReloadHubsAsync();
-                await ViewModel.TestAllConnectionsAsync();
+                if (!_testedThisSession)
+                {
+                    _testedThisSession = true;
+                    await ViewModel.TestAllConnectionsAsync();
+                }
             };
         }
 

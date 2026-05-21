@@ -37,8 +37,6 @@ namespace HubitatVS
 
         public static async Task ExecuteCompareAsync(string localFilePath)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
             var pane = await HubitatOutput.GetPaneAsync();
 
             // Analyze the local file
@@ -71,7 +69,7 @@ namespace HubitatVS
                 return;
             }
 
-            // If multiple connections, let user choose
+            // If multiple connections, let user choose (dialog requires UI thread)
             HubitatHubConfig hub;
             if (hubs.Count == 1)
             {
@@ -79,6 +77,7 @@ namespace HubitatVS
             }
             else
             {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 var dialog = new HubitatHubPickerDialog(hubs);
                 if (dialog.ShowModal() != true || dialog.SelectedHub == null)
                     return;
@@ -127,26 +126,27 @@ namespace HubitatVS
                 return;
             }
 
-            // Save to temp file
+            // Write temp file
             var tempDir = Path.Combine(Path.GetTempPath(), "HubitatVS");
-            Directory.CreateDirectory(tempDir);
             var fileName = Path.GetFileName(localFilePath);
             var tempFile = Path.Combine(tempDir, $"{Path.GetFileNameWithoutExtension(fileName)}.hub{Path.GetExtension(fileName)}");
+            Directory.CreateDirectory(tempDir);
             File.WriteAllText(tempFile, hubSource);
 
             await WriteToPaneAsync(pane, $"Comparing local file with hub version...\r\n");
 
-            // Execute File.Compare command
+            // DTE.ExecuteCommand requires the UI thread
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var dte = await VS.GetServiceAsync<EnvDTE.DTE, EnvDTE.DTE>();
             dte.ExecuteCommand("Tools.DiffFiles", $"\"{localFilePath}\" \"{tempFile}\"");
 
             await VS.StatusBar.ShowMessageAsync("Compare with Hub completed");
         }
 
-        private static async Task WriteToPaneAsync(IVsOutputWindowPane pane, string message)
+        private static Task WriteToPaneAsync(IVsOutputWindowPane pane, string message)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             pane?.OutputStringThreadSafe(message);
+            return Task.CompletedTask;
         }
 
         private static string GetSelectedGroovyFilePath()

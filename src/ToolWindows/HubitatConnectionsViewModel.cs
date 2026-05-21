@@ -69,10 +69,10 @@ namespace HubitatVS
             }
         }
 
-        private static async Task WriteToPaneAsync(IVsOutputWindowPane? pane, string message)
+        private static Task WriteToPaneAsync(IVsOutputWindowPane? pane, string message)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             pane?.OutputStringThreadSafe(message);
+            return Task.CompletedTask;
         }
     }
 }

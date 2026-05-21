@@ -243,6 +243,18 @@ namespace HubitatVS
                     $"Raw response: {FormatDiagnosticText(codeJson)}");
             }
 
+            if (NormalizeSource(codeData.Source) == NormalizeSource(source))
+            {
+                return new HubitatPublishResult
+                {
+                    Success = true,
+                    Message = $"Already up to date (version {codeData.Version}).",
+                    CodeId = codeId,
+                    PublishedVersion = codeData.Version,
+                    CodeKind = descriptor.Kind
+                };
+            }
+
             if (descriptor.Kind == HubitatCodeKind.App)
             {
                 return await SaveAppCodeJsonAsync(codeId, codeData.Version, source, ct);
@@ -463,6 +475,9 @@ namespace HubitatVS
             };
 
         public void Dispose() => _http.Dispose();
+
+        private static string NormalizeSource(string? source)
+            => (source ?? string.Empty).Replace("\r\n", "\n").Trim();
 
         private static string FormatDiagnosticText(string? text)
         {
