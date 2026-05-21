@@ -1,5 +1,6 @@
 using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -18,22 +19,29 @@ namespace HubitatVS
         private string _sessionCookie = string.Empty;
         private bool _prepared;
 
+        private static readonly ConcurrentDictionary<string, HttpClient> ClientPool =
+            new ConcurrentDictionary<string, HttpClient>(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan ConnectionProbeTimeout = TimeSpan.FromSeconds(3);
 
         public HubitatHubClient(HubitatHubConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
-            var handler = new HttpClientHandler
-            {
-                AllowAutoRedirect = false,
-                UseCookies = false
-            };
             var baseAddress = BuildBaseAddress(config.Host);
+            var poolKey = baseAddress.GetLeftPart(UriPartial.Authority);
 
-            _http = new HttpClient(handler)
+            _http = ClientPool.GetOrAdd(poolKey, _ =>
             {
-                BaseAddress = baseAddress
-            };
+                var handler = new HttpClientHandler
+                {
+                    AllowAutoRedirect = false,
+                    UseCookies = false
+                };
+
+                return new HttpClient(handler)
+                {
+                    BaseAddress = baseAddress
+                };
+            });
         }
 
         private static Uri BuildBaseAddress(string? host)
@@ -567,7 +575,7 @@ namespace HubitatVS
             };
         }
 
-        public void Dispose() => _http.Dispose();
+        public void Dispose() { }
 
         private static HubitatCodeListEntry FindExactMatch(
             IEnumerable<HubitatCodeListEntry> entries,

@@ -13,8 +13,7 @@ namespace HubitatVS
 
         public async Task ReloadHubsAsync()
         {
-            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-            var hubs = settings.GetHubs();
+            var hubs = await HubitatHubSettings.GetHubsCachedAsync(forceRefresh: true);
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             Hubs.Clear();
             foreach (var hub in hubs)

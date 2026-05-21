@@ -18,8 +18,7 @@ namespace HubitatVS
 
             await VS.StatusBar.ShowMessageAsync("Publishing to Hubitat…");
 
-            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-            var hubs = settings.GetHubs();
+            var hubs = await HubitatHubSettings.GetHubsCachedAsync();
 
             if (hubs.Count == 0)
             {

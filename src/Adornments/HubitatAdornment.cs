@@ -41,6 +41,8 @@ namespace HubitatVS
         private bool _hasRenderedContent;
 
         private static readonly TimeSpan AdornmentInfoCacheTtl = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan HubInfoTimeout = TimeSpan.FromSeconds(4);
+        private const int MaxAdornmentCacheEntries = 256;
         private const double RightMargin = 10.0;
         private const double BottomMargin = 10.0;
 
@@ -211,9 +213,7 @@ namespace HubitatVS
                 if (candidate.Kind == HubitatCodeKind.Unknown || string.IsNullOrWhiteSpace(candidate.DisplayName))
                     return;
 
-                // Always read the live options snapshot; Instance can be stale early in VS startup.
-                var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-                var hubs = settings.GetHubs().ToList();
+                var hubs = await HubitatHubSettings.GetHubsCachedAsync();
 
                 if (hubs.Count == 0)
                 {
@@ -350,6 +350,8 @@ namespace HubitatVS
 
             lock (_cacheLock)
             {
+                PruneAdornmentInfoCache_NoLock(now);
+
                 if (_adornmentInfoCache.TryGetValue(key, out var cached) && now - cached.Timestamp <= AdornmentInfoCacheTtl)
                 {
                     return Task.FromResult(cached.Entry);
@@ -375,9 +377,12 @@ namespace HubitatVS
         {
             try
             {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(HubInfoTimeout);
+
                 using var client = new HubitatHubClient(hub);
                 var entry = await client.GetAdornmentInfoAsync(
-                    candidate.Kind, candidate.DisplayName, candidate.NamespaceName, localSource, ct);
+                    candidate.Kind, candidate.DisplayName, candidate.NamespaceName, localSource, timeoutCts.Token);
 
                 lock (_cacheLock)
                 {
@@ -386,19 +391,23 @@ namespace HubitatVS
 
                 return entry;
             }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                var timedOutEntry = CreateUnavailableEntry(hub.Name, candidate.Kind);
+                lock (_cacheLock)
+                {
+                    _adornmentInfoCache[key] = new CachedAdornmentInfo(timedOutEntry, DateTimeOffset.UtcNow);
+                }
+
+                return timedOutEntry;
+            }
             catch (OperationCanceledException)
             {
                 throw;
             }
             catch
             {
-                var entry = new HubitatHubInfoEntry
-                {
-                    HubName = hub.Name,
-                    Found = false,
-                    ConnectionError = true,
-                    Kind = candidate.Kind
-                };
+                var entry = CreateUnavailableEntry(hub.Name, candidate.Kind);
 
                 lock (_cacheLock)
                 {
@@ -424,6 +433,39 @@ namespace HubitatVS
                 candidate.DisplayName,
                 candidate.NamespaceName,
                 sourceFingerprint.ToString());
+
+        private static HubitatHubInfoEntry CreateUnavailableEntry(string hubName, HubitatCodeKind kind)
+            => new HubitatHubInfoEntry
+            {
+                HubName = hubName,
+                Found = false,
+                ConnectionError = true,
+                Kind = kind
+            };
+
+        private void PruneAdornmentInfoCache_NoLock(DateTimeOffset now)
+        {
+            foreach (var expired in _adornmentInfoCache
+                .Where(kvp => now - kvp.Value.Timestamp > AdornmentInfoCacheTtl)
+                .Select(kvp => kvp.Key)
+                .ToList())
+            {
+                _adornmentInfoCache.Remove(expired);
+            }
+
+            if (_adornmentInfoCache.Count <= MaxAdornmentCacheEntries)
+                return;
+
+            var overflow = _adornmentInfoCache.Count - MaxAdornmentCacheEntries;
+            foreach (var key in _adornmentInfoCache
+                .OrderBy(kvp => kvp.Value.Timestamp)
+                .Take(overflow)
+                .Select(kvp => kvp.Key)
+                .ToList())
+            {
+                _adornmentInfoCache.Remove(key);
+            }
+        }
 
         private static string FormatRelativeDate(DateTimeOffset date)
         {

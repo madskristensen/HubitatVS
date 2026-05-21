@@ -38,8 +38,10 @@ namespace HubitatVS
         {
             var pane = await HubitatOutput.GetPaneAsync();
 
+            var localSource = await Task.Run(() => File.ReadAllText(localFilePath));
+
             // Analyze the local file
-            var candidate = HubitatGroovyAnalyzer.AnalyzeFile(localFilePath);
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(localSource, localFilePath);
             if (candidate.Kind == HubitatCodeKind.Unknown)
             {
                 await VS.MessageBox.ShowWarningAsync(
@@ -57,8 +59,7 @@ namespace HubitatVS
             }
 
             // Get hub settings
-            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-            var hubs = settings.GetHubs();
+            var hubs = await HubitatHubSettings.GetHubsCachedAsync();
 
             if (hubs.Count == 0)
             {
@@ -116,9 +117,12 @@ namespace HubitatVS
             // Write temp file
             var tempDir = Path.Combine(Path.GetTempPath(), "HubitatVS");
             var fileName = Path.GetFileName(localFilePath);
-            var tempFile = Path.Combine(tempDir, $"{Path.GetFileNameWithoutExtension(fileName)}.hub{Path.GetExtension(fileName)}");
+            var tempFile = Path.Combine(
+                tempDir,
+                $"{Path.GetFileNameWithoutExtension(fileName)}.{Guid.NewGuid():N}.hub{Path.GetExtension(fileName)}");
             Directory.CreateDirectory(tempDir);
-            File.WriteAllText(tempFile, hubSource);
+            CleanupOldCompareTempFiles(tempDir);
+            await Task.Run(() => File.WriteAllText(tempFile, hubSource));
 
             await WriteToPaneAsync(pane, $"Comparing local file with hub version...\r\n");
 
@@ -136,6 +140,27 @@ namespace HubitatVS
             return Task.CompletedTask;
         }
 
-
+        private static void CleanupOldCompareTempFiles(string tempDir)
+        {
+            try
+            {
+                var threshold = DateTime.UtcNow.AddDays(-1);
+                foreach (var file in Directory.EnumerateFiles(tempDir, "*.hub*", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        var lastWrite = File.GetLastWriteTimeUtc(file);
+                        if (lastWrite < threshold)
+                            File.Delete(file);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
     }
 }
