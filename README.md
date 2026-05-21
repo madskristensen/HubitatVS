@@ -37,6 +37,8 @@ If you have more than one connection defined, a dialog shows when you want to pu
 
 Right-click a Hubitat `.groovy` file in Solution Explorer and select **Compare with Hub** to diff your local file against the version currently deployed on the hub. Visual Studio's built-in diff viewer opens with the local file on the left and the hub version on the right, making it easy to review what has changed since your last publish.
 
+![Compare to hub version](art/compare.png)
+
 The driver or app must have been published to the hub at least once before comparing.
 
 ## Support
