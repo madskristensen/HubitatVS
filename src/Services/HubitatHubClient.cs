@@ -192,6 +192,29 @@ namespace HubitatVS
             return exactMatch?.Id;
         }
 
+        /// <summary>Downloads the source code of an existing app/driver from the hub.</summary>
+        public async Task<string> DownloadCodeSourceAsync(
+            HubitatCodeKind kind,
+            int codeId,
+            CancellationToken ct = default)
+        {
+            await EnsureAuthenticatedAsync(ct);
+            var descriptor = GetDescriptor(kind);
+
+            using var codeRequest = CreateRequest(HttpMethod.Get, $"{descriptor.EditorBasePath}/ajax/code?id={codeId}");
+            codeRequest.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var codeResponse = await _http.SendAsync(codeRequest, ct);
+            var codeJson = await codeResponse.Content.ReadAsStringAsync();
+            if (!codeResponse.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var codeData = JsonConvert.DeserializeObject<HubitatCodeResponse>(codeJson);
+            return codeData?.Source;
+        }
+
         private async Task<HubitatPublishResult> UpdateCodeAsync(
             HubitatCodeDescriptor descriptor,
             int codeId,

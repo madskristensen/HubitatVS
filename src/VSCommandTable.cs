@@ -32,6 +32,9 @@ namespace HubitatVS
         public const int HubitatWorkspaceContextMenuGroup = 0x0002;
         public const int ShowHubitatConnectionsToolWindowCommand = 0x0102;
         public const int PublishToHubitatCommand = 0x0103;
+        public const int HubitatContextMenuFlyout = 0x0104;
+        public const int HubitatContextMenuFlyoutGroup = 0x0105;
+        public const int CompareWithHubCommand = 0x0106;
         public const int idmWSE_ContextMenu = 0x0002;
         public const int Logo = 0x0001;
     }

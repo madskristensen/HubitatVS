@@ -18,6 +18,7 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 - **Hub Connection Management** — Configure and manage Hubitat hub connections from the Tools menu
 - **Groovy Source Classification** — Detect whether a `.groovy` file is a Hubitat driver or app from its source structure
 - **One-Click Publishing** — Publish drivers and apps directly to your Hubitat hub
+- **Compare with Hub** — Diff your local Groovy file against the version currently on the hub using Visual Studio's built-in diff viewer
 - **Connection Validation** — Verify hub connectivity before publishing
 - **Build Integration** — Seamlessly integrated commands for Groovy projects
 
@@ -31,6 +32,12 @@ Download this extension from the [Visual Studio Marketplace][marketplace].
 If you have more than one connection defined, a dialog shows when you want to publish your driver or app, asking you to chose your connection.
 
 ![Hubitat connection selector](art/connection-selector.png)
+
+## Compare with Hub
+
+Right-click a Hubitat `.groovy` file in Solution Explorer and select **Compare with Hub** to diff your local file against the version currently deployed on the hub. Visual Studio's built-in diff viewer opens with the local file on the left and the hub version on the right, making it easy to review what has changed since your last publish.
+
+The driver or app must have been published to the hub at least once before comparing.
 
 ## Support
 

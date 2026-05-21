@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -37,6 +38,9 @@ namespace HubitatVS
             hubVm.Status = ConnectionStatus.Testing;
             hubVm.StatusMessage = "Testing…";
 
+            var pane = await HubitatOutput.GetPaneAsync();
+            await WriteToPaneAsync(pane, $"Testing connection to {hubVm.Hub.Name}…\r\n");
+
             try
             {
                 using var client = new HubitatHubClient(hubVm.Hub);
@@ -45,14 +49,30 @@ namespace HubitatVS
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 hubVm.Status = connected ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
                 hubVm.StatusMessage = connected ? "Connected" : "Failed";
+
+                if (connected)
+                {
+                    await WriteToPaneAsync(pane, $"✅ Connected to {hubVm.Hub.Name}\r\n");
+                }
+                else
+                {
+                    await WriteToPaneAsync(pane, $"❌ Failed to connect to {hubVm.Hub.Name}\r\n");
+                }
             }
             catch (Exception ex)
             {
                 await ex.LogAsync();
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 hubVm.Status = ConnectionStatus.Disconnected;
-                hubVm.StatusMessage = $"Error: {ex.Message}";
+                hubVm.StatusMessage = "Not connected";
+                await WriteToPaneAsync(pane, $"❌ Failed to connect to {hubVm.Hub.Name}: {ex.GetBaseException().Message}\r\n");
             }
+        }
+
+        private static async Task WriteToPaneAsync(IVsOutputWindowPane? pane, string message)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            pane?.OutputStringThreadSafe(message);
         }
     }
 }
