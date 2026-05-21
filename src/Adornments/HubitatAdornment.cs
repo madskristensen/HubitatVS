@@ -32,8 +32,15 @@ namespace HubitatVS
         private readonly StackPanel _textStack;
 
         private readonly HubitatRefreshCoordinator _refreshCoordinator;
+        private readonly Dictionary<string, CachedAdornmentInfo> _adornmentInfoCache =
+            new Dictionary<string, CachedAdornmentInfo>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, System.Threading.Tasks.Task<HubitatHubInfoEntry>> _adornmentInfoInFlight =
+            new Dictionary<string, System.Threading.Tasks.Task<HubitatHubInfoEntry>>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _cacheLock = new object();
         private bool _pendingInitialLayoutRefresh = true;
+        private bool _hasRenderedContent;
 
+        private static readonly TimeSpan AdornmentInfoCacheTtl = TimeSpan.FromSeconds(2);
         private const double RightMargin = 10.0;
         private const double BottomMargin = 10.0;
 
@@ -86,6 +93,7 @@ namespace HubitatVS
 
             _element.PreviewMouseRightButtonUp += OnAdornmentRightClick;
             _textView.LayoutChanged += OnLayoutChanged;
+            _textView.GotAggregateFocus += OnViewGotAggregateFocus;
             _document.FileActionOccurred += OnDocumentFileActionOccurred;
             _textView.Closed += OnViewClosed;
             HubitatConnectionTracker.HubsChanged += OnHubsChanged;
@@ -101,17 +109,24 @@ namespace HubitatVS
                 TriggerRefresh();
             }
 
-            if (_element.Visibility != Visibility.Visible)
+            if (_element.Visibility == Visibility.Visible)
+            {
+                if (!UpdatePosition())
+                    _element.Visibility = Visibility.Hidden;
                 return;
+            }
 
-            if (!UpdatePosition())
-                _element.Visibility = Visibility.Hidden;
+            if (_hasRenderedContent && UpdatePosition())
+            {
+                _element.Visibility = Visibility.Visible;
+            }
         }
 
         private void OnViewClosed(object sender, EventArgs e)
         {
             _element.PreviewMouseRightButtonUp -= OnAdornmentRightClick;
             _textView.LayoutChanged -= OnLayoutChanged;
+            _textView.GotAggregateFocus -= OnViewGotAggregateFocus;
             _document.FileActionOccurred -= OnDocumentFileActionOccurred;
             _textView.Closed -= OnViewClosed;
             HubitatConnectionTracker.HubsChanged -= OnHubsChanged;
@@ -119,6 +134,8 @@ namespace HubitatVS
         }
 
         private void OnHubsChanged(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
+
+        private void OnViewGotAggregateFocus(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
 
         private void OnDocumentFileActionOccurred(object sender, TextDocumentFileActionEventArgs e)
         {
@@ -205,18 +222,7 @@ namespace HubitatVS
                     return;
                 }
 
-                _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
-                {
-                    try
-                    {
-                        await HubitatConnectionTracker.EnsureConnectionsTestedAsync(hubs, CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        ex.Log();
-                    }
-                });
-
+                await HubitatConnectionTracker.EnsureConnectionsTestedAsync(hubs, ct);
                 ct.ThrowIfCancellationRequested();
 
                 var connectedHubs = hubs
@@ -234,27 +240,16 @@ namespace HubitatVS
 
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
                     if (refreshVersion == _refreshCoordinator.CurrentVersion)
+                    {
+                        _hasRenderedContent = false;
                         _element.Visibility = Visibility.Hidden;
+                    }
                     return;
                 }
 
-                var results = await Task.WhenAll(connectedHubs.Select(async hub =>
-                {
-                    try
-                    {
-                        using var client = new HubitatHubClient(hub);
-                        return await client.GetAdornmentInfoAsync(
-                            candidate.Kind, candidate.DisplayName, candidate.NamespaceName, localSource, ct);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch
-                    {
-                        return new HubitatHubInfoEntry { HubName = hub.Name, Found = false, ConnectionError = true, Kind = candidate.Kind };
-                    }
-                }));
+                var sourceFingerprint = StringComparer.Ordinal.GetHashCode(localSource);
+                var results = await Task.WhenAll(connectedHubs.Select(hub =>
+                    GetAdornmentInfoCachedAsync(hub, candidate, localSource, sourceFingerprint, ct)));
 
                 if (_textView.IsClosed || refreshVersion != _refreshCoordinator.CurrentVersion) return;
 
@@ -264,6 +259,7 @@ namespace HubitatVS
                     return;
 
                 var hasContent = Render(results, connectedHubs.Count > 1);
+                _hasRenderedContent = hasContent;
                 _element.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_textView.IsClosed || refreshVersion != _refreshCoordinator.CurrentVersion)
@@ -285,7 +281,7 @@ namespace HubitatVS
         {
             _textStack.Children.Clear();
 
-            if (!entries.Any(e => e.Found || e.ConnectionError))
+            if (entries.Length == 0)
                 return false;
 
             _textStack.VerticalAlignment = entries.Length == 1
@@ -342,6 +338,93 @@ namespace HubitatVS
             return string.Join(" · ", parts);
         }
 
+        private System.Threading.Tasks.Task<HubitatHubInfoEntry> GetAdornmentInfoCachedAsync(
+            HubitatHubConfig hub,
+            HubitatCodeCandidate candidate,
+            string localSource,
+            int sourceFingerprint,
+            CancellationToken ct)
+        {
+            var key = BuildCacheKey(hub, candidate, sourceFingerprint);
+            var now = DateTimeOffset.UtcNow;
+
+            lock (_cacheLock)
+            {
+                if (_adornmentInfoCache.TryGetValue(key, out var cached) && now - cached.Timestamp <= AdornmentInfoCacheTtl)
+                {
+                    return Task.FromResult(cached.Entry);
+                }
+
+                if (_adornmentInfoInFlight.TryGetValue(key, out var pending))
+                {
+                    return pending;
+                }
+
+                var work = FetchAdornmentInfoAsync(key, hub, candidate, localSource, ct);
+                _adornmentInfoInFlight[key] = work;
+                return work;
+            }
+        }
+
+        private async System.Threading.Tasks.Task<HubitatHubInfoEntry> FetchAdornmentInfoAsync(
+            string key,
+            HubitatHubConfig hub,
+            HubitatCodeCandidate candidate,
+            string localSource,
+            CancellationToken ct)
+        {
+            try
+            {
+                using var client = new HubitatHubClient(hub);
+                var entry = await client.GetAdornmentInfoAsync(
+                    candidate.Kind, candidate.DisplayName, candidate.NamespaceName, localSource, ct);
+
+                lock (_cacheLock)
+                {
+                    _adornmentInfoCache[key] = new CachedAdornmentInfo(entry, DateTimeOffset.UtcNow);
+                }
+
+                return entry;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                var entry = new HubitatHubInfoEntry
+                {
+                    HubName = hub.Name,
+                    Found = false,
+                    ConnectionError = true,
+                    Kind = candidate.Kind
+                };
+
+                lock (_cacheLock)
+                {
+                    _adornmentInfoCache[key] = new CachedAdornmentInfo(entry, DateTimeOffset.UtcNow);
+                }
+
+                return entry;
+            }
+            finally
+            {
+                lock (_cacheLock)
+                {
+                    _adornmentInfoInFlight.Remove(key);
+                }
+            }
+        }
+
+        private static string BuildCacheKey(HubitatHubConfig hub, HubitatCodeCandidate candidate, int sourceFingerprint)
+            => string.Join("|",
+                hub.Name,
+                hub.Host,
+                candidate.Kind,
+                candidate.DisplayName,
+                candidate.NamespaceName,
+                sourceFingerprint.ToString());
+
         private static string FormatRelativeDate(DateTimeOffset date)
         {
             var age = DateTimeOffset.UtcNow - date.ToUniversalTime();
@@ -349,6 +432,19 @@ namespace HubitatVS
             if (age.TotalDays < 2) return "yesterday";
             if (age.TotalDays < 7) return $"{(int)age.TotalDays}d ago";
             return date.LocalDateTime.ToString("MMM d");
+        }
+
+        private sealed class CachedAdornmentInfo
+        {
+            public CachedAdornmentInfo(HubitatHubInfoEntry entry, DateTimeOffset timestamp)
+            {
+                Entry = entry;
+                Timestamp = timestamp;
+            }
+
+            public HubitatHubInfoEntry Entry { get; }
+
+            public DateTimeOffset Timestamp { get; }
         }
     }
 }

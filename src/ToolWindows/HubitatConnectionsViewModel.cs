@@ -76,29 +76,50 @@ namespace HubitatVS
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             foreach (var hubVm in Hubs)
             {
-                if (HubitatConnectionTracker.IsTesting(hubVm.Hub.Name))
-                {
-                    hubVm.Status = ConnectionStatus.Testing;
-                    hubVm.StatusMessage = "Testing…";
-                    continue;
-                }
+                ApplyTrackerStatus(hubVm);
+            }
+        }
 
-                var connected = HubitatConnectionTracker.GetConnected(hubVm.Hub.Name);
-                if (connected == true)
-                {
-                    hubVm.Status = ConnectionStatus.Connected;
-                    hubVm.StatusMessage = "Connected";
-                }
-                else if (connected == false)
-                {
-                    hubVm.Status = ConnectionStatus.Disconnected;
-                    hubVm.StatusMessage = "Failed";
-                }
-                else
-                {
-                    hubVm.Status = ConnectionStatus.Unknown;
-                    hubVm.StatusMessage = "Not tested";
-                }
+        public async Task ApplyTrackerStatusForHubAsync(string hubName)
+        {
+            if (string.IsNullOrWhiteSpace(hubName))
+            {
+                await ApplyTrackerStatusesAsync();
+                return;
+            }
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var hubVm = Hubs.FirstOrDefault(h => string.Equals(h.Hub.Name, hubName, StringComparison.OrdinalIgnoreCase));
+            if (hubVm != null)
+            {
+                ApplyTrackerStatus(hubVm);
+            }
+        }
+
+        private static void ApplyTrackerStatus(HubitatHubViewModel hubVm)
+        {
+            if (HubitatConnectionTracker.IsTesting(hubVm.Hub.Name))
+            {
+                hubVm.Status = ConnectionStatus.Testing;
+                hubVm.StatusMessage = "Testing…";
+                return;
+            }
+
+            var connected = HubitatConnectionTracker.GetConnected(hubVm.Hub.Name);
+            if (connected == true)
+            {
+                hubVm.Status = ConnectionStatus.Connected;
+                hubVm.StatusMessage = "Connected";
+            }
+            else if (connected == false)
+            {
+                hubVm.Status = ConnectionStatus.Disconnected;
+                hubVm.StatusMessage = "Failed";
+            }
+            else
+            {
+                hubVm.Status = ConnectionStatus.Unknown;
+                hubVm.StatusMessage = "Not tested";
             }
         }
 

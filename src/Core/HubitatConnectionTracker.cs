@@ -21,6 +21,9 @@ namespace HubitatVS
         /// <summary>Fired when any hub's connection state or the hub list itself changes.</summary>
         public static event EventHandler HubsChanged;
 
+        /// <summary>Fired when a specific hub state changes, or globally when hubName is null.</summary>
+        public static event EventHandler<HubitatHubStateChangedEventArgs> HubStateChanged;
+
         /// <summary>Records the result of an explicit connection test.</summary>
         public static void SetConnected(string hubName, bool connected)
         {
@@ -32,7 +35,10 @@ namespace HubitatVS
             }
 
             if (changed)
+            {
+                HubStateChanged?.Invoke(null, new HubitatHubStateChangedEventArgs(hubName));
                 HubsChanged?.Invoke(null, EventArgs.Empty);
+            }
         }
 
         /// <summary>Runs one connection test and updates shared status.</summary>
@@ -124,6 +130,7 @@ namespace HubitatVS
                 _testTask = Task.CompletedTask;
             }
 
+            HubStateChanged?.Invoke(null, HubitatHubStateChangedEventArgs.Global);
             HubsChanged?.Invoke(null, EventArgs.Empty);
         }
 
@@ -142,12 +149,18 @@ namespace HubitatVS
             }
 
             if (changed)
+            {
+                HubStateChanged?.Invoke(null, new HubitatHubStateChangedEventArgs(hubName));
                 HubsChanged?.Invoke(null, EventArgs.Empty);
+            }
         }
 
         /// <summary>Signals that hub-side code data changed and dependents should refresh.</summary>
         public static void NotifyHubDataChanged()
-            => HubsChanged?.Invoke(null, EventArgs.Empty);
+        {
+            HubStateChanged?.Invoke(null, HubitatHubStateChangedEventArgs.Global);
+            HubsChanged?.Invoke(null, EventArgs.Empty);
+        }
 
         /// <summary>
         /// Returns true/false if the hub has been explicitly tested, or null if untested.
@@ -183,7 +196,24 @@ namespace HubitatVS
             }
 
             if (changed)
+            {
+                HubStateChanged?.Invoke(null, new HubitatHubStateChangedEventArgs(hubName));
                 HubsChanged?.Invoke(null, EventArgs.Empty);
+            }
         }
+    }
+
+    internal sealed class HubitatHubStateChangedEventArgs : EventArgs
+    {
+        public static readonly HubitatHubStateChangedEventArgs Global = new HubitatHubStateChangedEventArgs(null);
+
+        public HubitatHubStateChangedEventArgs(string hubName)
+        {
+            HubName = hubName;
+        }
+
+        public string HubName { get; }
+
+        public bool IsGlobal => string.IsNullOrWhiteSpace(HubName);
     }
 }

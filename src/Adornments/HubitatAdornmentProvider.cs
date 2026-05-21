@@ -9,6 +9,7 @@ namespace HubitatVS
 {
     [Export(typeof(IWpfTextViewCreationListener))]
     [ContentType("code")]
+    [ContentType("text")]
     [TextViewRole(PredefinedTextViewRoles.Document)]
     internal sealed class HubitatAdornmentProvider : IWpfTextViewCreationListener
     {
@@ -24,8 +25,11 @@ namespace HubitatVS
 
         public void TextViewCreated(IWpfTextView textView)
         {
-            if (!TextDocumentFactory.TryGetTextDocument(textView.TextBuffer, out var doc))
+            if (!TextDocumentFactory.TryGetTextDocument(textView.TextBuffer, out var doc) &&
+                !TextDocumentFactory.TryGetTextDocument(textView.TextDataModel.DocumentBuffer, out doc))
+            {
                 return;
+            }
 
             if (!doc.FilePath.EndsWith(".groovy", StringComparison.OrdinalIgnoreCase))
                 return;

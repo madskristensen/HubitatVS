@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.Workspace;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,6 +31,9 @@ namespace HubitatVS.OpenFolder
             string filePath,
             CancellationToken cancellationToken)
         {
+            if (!string.Equals(Path.GetExtension(filePath), ".groovy", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult<IReadOnlyCollection<FileContext>>(Array.Empty<FileContext>());
+
             var context = new FileContext(
                 new Guid(HubitatContextTypes.ProviderTypeGuidString),
                 HubitatContextTypes.ContextTypeGuid,

@@ -18,6 +18,8 @@ namespace HubitatVS
         private string _sessionCookie = string.Empty;
         private bool _prepared;
 
+        private static readonly TimeSpan ConnectionProbeTimeout = TimeSpan.FromSeconds(3);
+
         public HubitatHubClient(HubitatHubConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -64,15 +66,25 @@ namespace HubitatVS
 
         public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
         {
-            await EnsureAuthenticatedAsync(ct);
-            using var request = CreateRequest(HttpMethod.Get, "/hub2/hubData");
-            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(ConnectionProbeTimeout);
 
-            var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) return false;
+            try
+            {
+                await EnsureAuthenticatedAsync(timeoutCts.Token);
+                using var request = CreateRequest(HttpMethod.Get, "/hub2/hubData");
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-            var json = await response.Content.ReadAsStringAsync();
-            return json.Contains("\"hubId\"");
+                var response = await _http.SendAsync(request, timeoutCts.Token);
+                if (!response.IsSuccessStatusCode) return false;
+
+                var json = await response.Content.ReadAsStringAsync();
+                return json.Contains("\"hubId\"");
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return false;
+            }
         }
 
         public async Task<string> LoginAsync(CancellationToken ct = default)

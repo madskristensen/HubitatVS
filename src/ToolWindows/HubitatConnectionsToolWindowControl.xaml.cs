@@ -20,7 +20,7 @@ namespace HubitatVS
             {
                 if (!_trackerSubscribed)
                 {
-                    HubitatConnectionTracker.HubsChanged += OnTrackerChanged;
+                    HubitatConnectionTracker.HubStateChanged += OnTrackerChanged;
                     _trackerSubscribed = true;
                 }
 
@@ -35,7 +35,7 @@ namespace HubitatVS
             {
                 if (_trackerSubscribed)
                 {
-                    HubitatConnectionTracker.HubsChanged -= OnTrackerChanged;
+                    HubitatConnectionTracker.HubStateChanged -= OnTrackerChanged;
                     _trackerSubscribed = false;
                 }
             };
@@ -43,13 +43,20 @@ namespace HubitatVS
 
         private HubitatConnectionsViewModel ViewModel => (HubitatConnectionsViewModel)DataContext;
 
-        private void OnTrackerChanged(object sender, EventArgs e)
+        private void OnTrackerChanged(object sender, HubitatHubStateChangedEventArgs e)
         {
             _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
                 try
                 {
-                    await ViewModel.ApplyTrackerStatusesAsync();
+                    if (e?.IsGlobal != false)
+                    {
+                        await ViewModel.ApplyTrackerStatusesAsync();
+                    }
+                    else
+                    {
+                        await ViewModel.ApplyTrackerStatusForHubAsync(e.HubName);
+                    }
                 }
                 catch (Exception ex)
                 {
