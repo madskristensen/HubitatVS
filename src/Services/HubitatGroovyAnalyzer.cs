@@ -8,8 +8,6 @@ namespace HubitatVS
 {
     internal static class HubitatGroovyAnalyzer
     {
-        private static readonly Regex MetadataDefinitionRegex = new(@"metadata\s*\{[\s\S]*?definition\s*\((?<args>.*?)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        private static readonly Regex DefinitionRegex = new(@"definition\s*\((?<args>.*?)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
         private static readonly Regex DefinitionNameRegex = new(@"name\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DefinitionNamespaceRegex = new(@"namespace\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DefinitionAuthorRegex = new(@"author\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -55,12 +53,16 @@ namespace HubitatVS
         {
             var text = source ?? string.Empty;
             var normalizedPath = filePath ?? string.Empty;
-            var driverDefinition = MetadataDefinitionRegex.Match(text);
-            var definition = DefinitionRegex.Match(text);
-            var kind = DetermineKind(text, driverDefinition, definition);
-            var definitionArgs = driverDefinition.Success
-                ? driverDefinition.Groups["args"].Value
-                : definition.Success ? definition.Groups["args"].Value : text;
+            var definitionArgs = TryExtractMetadataDefinitionArguments(text);
+            var hasMetadataDefinition = definitionArgs != null;
+            if (!hasMetadataDefinition)
+            {
+                definitionArgs = TryExtractDefinitionArguments(text, 0, text.Length);
+            }
+
+            var hasDefinition = definitionArgs != null;
+            var kind = DetermineKind(text, hasMetadataDefinition, hasDefinition);
+            definitionArgs ??= text;
 
             var displayName = ExtractValue(definitionArgs, DefinitionNameRegex)
                 ?? Path.GetFileNameWithoutExtension(normalizedPath);
@@ -75,23 +77,33 @@ namespace HubitatVS
                 author,
                 version,
                 kind,
-                BuildWarnings(kind, normalizedPath, displayName, namespaceName, author, definition.Success || driverDefinition.Success));
+                BuildWarnings(kind, normalizedPath, displayName, namespaceName, author, hasDefinition));
         }
 
-        private static HubitatCodeKind DetermineKind(string source, Match driverDefinition, Match definition)
+        private static HubitatCodeKind DetermineKind(string source, bool hasMetadataDefinition, bool hasDefinition)
         {
-            if (driverDefinition.Success)
+            if (hasMetadataDefinition)
+            {
+                if (DriverHintRegex.IsMatch(source))
+                {
+                    return HubitatCodeKind.Driver;
+                }
+
+                if (AppHintRegex.IsMatch(source))
+                {
+                    return HubitatCodeKind.App;
+                }
+
+                return HubitatCodeKind.Driver;
+            }
+
+            var hasMetadataBlock = Regex.IsMatch(source, @"\bmetadata\s*\{", RegexOptions.IgnoreCase);
+            if (hasMetadataBlock && DriverHintRegex.IsMatch(source) && !hasDefinition)
             {
                 return HubitatCodeKind.Driver;
             }
 
-            var hasMetadata = source.IndexOf("metadata", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (hasMetadata && DriverHintRegex.IsMatch(source))
-            {
-                return HubitatCodeKind.Driver;
-            }
-
-            if (definition.Success)
+            if (hasDefinition)
             {
                 return HubitatCodeKind.App;
             }
@@ -102,6 +114,171 @@ namespace HubitatVS
             }
 
             return HubitatCodeKind.Unknown;
+        }
+
+        private static string? TryExtractMetadataDefinitionArguments(string source)
+        {
+            var searchStart = 0;
+            while (TryFindIdentifier(source, "metadata", searchStart, source.Length, out var metadataIndex))
+            {
+                if (TryFindBlock(source, metadataIndex + "metadata".Length, '{', '}', out var blockStart, out var blockEnd))
+                {
+                    var args = TryExtractDefinitionArguments(source, blockStart, blockEnd);
+                    if (args != null)
+                    {
+                        return args;
+                    }
+
+                    searchStart = blockEnd;
+                    continue;
+                }
+
+                searchStart = metadataIndex + "metadata".Length;
+            }
+
+            return null;
+        }
+
+        private static string? TryExtractDefinitionArguments(string source, int startIndex, int endIndex)
+        {
+            var searchStart = startIndex;
+            while (TryFindIdentifier(source, "definition", searchStart, endIndex, out var definitionIndex))
+            {
+                if (TryFindBlock(source, definitionIndex + "definition".Length, '(', ')', out var argsStart, out var argsEnd))
+                {
+                    return source.Substring(argsStart, argsEnd - argsStart);
+                }
+
+                searchStart = definitionIndex + "definition".Length;
+            }
+
+            return null;
+        }
+
+        private static bool TryFindIdentifier(string source, string identifier, int startIndex, int endIndex, out int index)
+        {
+            index = -1;
+            if (string.IsNullOrEmpty(source) || startIndex >= endIndex)
+            {
+                return false;
+            }
+
+            var probe = startIndex;
+            while (probe < endIndex)
+            {
+                var found = source.IndexOf(identifier, probe, endIndex - probe, StringComparison.OrdinalIgnoreCase);
+                if (found < 0)
+                {
+                    return false;
+                }
+
+                var beforeIsIdentifier = found > 0 && (char.IsLetterOrDigit(source[found - 1]) || source[found - 1] == '_');
+                var afterIndex = found + identifier.Length;
+                var afterIsIdentifier = afterIndex < source.Length && (char.IsLetterOrDigit(source[afterIndex]) || source[afterIndex] == '_');
+
+                if (!beforeIsIdentifier && !afterIsIdentifier)
+                {
+                    index = found;
+                    return true;
+                }
+
+                probe = found + identifier.Length;
+            }
+
+            return false;
+        }
+
+        private static bool TryFindBlock(string source, int searchFrom, char openChar, char closeChar, out int contentStart, out int contentEnd)
+        {
+            contentStart = -1;
+            contentEnd = -1;
+
+            var index = searchFrom;
+            while (index < source.Length && char.IsWhiteSpace(source[index]))
+            {
+                index++;
+            }
+
+            if (index >= source.Length || source[index] != openChar)
+            {
+                return false;
+            }
+
+            var depth = 1;
+            var inSingleQuote = false;
+            var inDoubleQuote = false;
+            var escaped = false;
+            var start = index + 1;
+
+            for (var i = start; i < source.Length; i++)
+            {
+                var ch = source[i];
+
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (inSingleQuote)
+                {
+                    if (ch == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (ch == '\'')
+                    {
+                        inSingleQuote = false;
+                    }
+
+                    continue;
+                }
+
+                if (inDoubleQuote)
+                {
+                    if (ch == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (ch == '"')
+                    {
+                        inDoubleQuote = false;
+                    }
+
+                    continue;
+                }
+
+                if (ch == '\'')
+                {
+                    inSingleQuote = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inDoubleQuote = true;
+                    continue;
+                }
+
+                if (ch == openChar)
+                {
+                    depth++;
+                    continue;
+                }
+
+                if (ch == closeChar)
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        contentStart = start;
+                        contentEnd = i;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static IReadOnlyList<string> BuildWarnings(

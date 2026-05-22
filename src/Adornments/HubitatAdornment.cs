@@ -4,8 +4,9 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.PlatformUI;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
@@ -15,21 +16,15 @@ namespace HubitatVS
 {
     internal sealed class HubitatAdornment
     {
-        private static readonly Lazy<BitmapImage> _iconSource = new Lazy<BitmapImage>(() =>
-        {
-            var img = new BitmapImage(new Uri(
-                "pack://application:,,,/HubitatVS;component/Resources/Icons/logo.24.24.png",
-                UriKind.Absolute));
-            img.Freeze();
-            return img;
-        });
-
         private readonly IWpfTextView _textView;
         private readonly string _filePath;
         private readonly IAdornmentLayer _layer;
         private readonly ITextDocument _document;
         private readonly Border _element;
         private readonly StackPanel _textStack;
+        private CrispImage _logoIcon;
+        private ScaleTransform _iconScale;
+        private CancellationTokenSource _iconAnimationCts;
 
         private readonly HubitatRefreshCoordinator _refreshCoordinator;
         private readonly Dictionary<string, CachedAdornmentInfo> _adornmentInfoCache =
@@ -40,11 +35,11 @@ namespace HubitatVS
         private bool _pendingInitialLayoutRefresh = true;
         private bool _hasRenderedContent;
 
-        private static readonly TimeSpan AdornmentInfoCacheTtl = TimeSpan.FromSeconds(2);
-        private static readonly TimeSpan HubInfoTimeout = TimeSpan.FromSeconds(4);
-        private const int MaxAdornmentCacheEntries = 256;
-        private const double RightMargin = 10.0;
-        private const double BottomMargin = 10.0;
+        private static readonly TimeSpan _adornmentInfoCacheTtl = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan _hubInfoTimeout = TimeSpan.FromSeconds(4);
+        private const int _maxAdornmentCacheEntries = 256;
+        private const double _rightMargin = 10.0;
+        private const double _bottomMargin = 10.0;
 
         public HubitatAdornment(IWpfTextView textView, ITextDocument document)
         {
@@ -55,17 +50,17 @@ namespace HubitatVS
 
             _textStack = new StackPanel();
 
-            var icon = new Image
+            _logoIcon = new CrispImage
             {
-                Source = _iconSource.Value,
                 Width = 24,
                 Height = 24,
+                Moniker = RuntimeMonikers.HubitatLogoMoniker,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                UseLayoutRounding = true,
-                SnapsToDevicePixels = true,
             };
-            RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
+            _iconScale = new ScaleTransform(1, 1);
+            _logoIcon.RenderTransform = _iconScale;
+            _logoIcon.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
 
             var outer = new StackPanel
             {
@@ -73,7 +68,7 @@ namespace HubitatVS
                 Margin = new Thickness(8, 5, 10, 5),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            outer.Children.Add(icon);
+            outer.Children.Add(_logoIcon);
             outer.Children.Add(_textStack);
 
             _element = new Border
@@ -99,6 +94,7 @@ namespace HubitatVS
             _document.FileActionOccurred += OnDocumentFileActionOccurred;
             _textView.Closed += OnViewClosed;
             HubitatConnectionTracker.HubsChanged += OnHubsChanged;
+            HubitatPublishTracker.PublishStateChanged += OnPublishStateChanged;
 
             TriggerRefresh();
         }
@@ -132,10 +128,129 @@ namespace HubitatVS
             _document.FileActionOccurred -= OnDocumentFileActionOccurred;
             _textView.Closed -= OnViewClosed;
             HubitatConnectionTracker.HubsChanged -= OnHubsChanged;
+            HubitatPublishTracker.PublishStateChanged -= OnPublishStateChanged;
+            _iconAnimationCts?.Cancel();
             _refreshCoordinator.Dispose();
         }
 
         private void OnHubsChanged(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
+
+        private void OnPublishStateChanged(object sender, HubitatPublishStateEventArgs e)
+        {
+            if (!string.Equals(e.FilePath, _filePath, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (_textView.IsClosed) return;
+
+                _iconAnimationCts?.Cancel();
+                _iconAnimationCts = new CancellationTokenSource();
+                var cts = _iconAnimationCts;
+
+                var newMoniker = e.State == HubitatPublishState.Publishing
+                    ? KnownMonikers.Upload
+                    : e.State == HubitatPublishState.Success
+                        ? KnownMonikers.StatusOKOutline
+                        : KnownMonikers.StatusErrorOutline;
+
+                await SwapLogoIconAsync(newMoniker, cts.Token);
+
+                if (e.State != HubitatPublishState.Publishing)
+                {
+                    try { await Task.Delay(2000, cts.Token); }
+                    catch (OperationCanceledException) { return; }
+
+                    await SwapLogoIconAsync(RuntimeMonikers.HubitatLogoMoniker, cts.Token);
+                }
+            });
+        }
+
+        private async Task SwapLogoIconAsync(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker newMoniker, CancellationToken ct)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_textView.IsClosed) return;
+
+            // Clear any ongoing animation before starting a fresh one
+            ResetIconState();
+
+            // Phase 1: fade out + shrink to centre (150 ms)
+            var fadeOut = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(150)))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            var shrinkX = new DoubleAnimation(1, 0.65, new Duration(TimeSpan.FromMilliseconds(150)))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            var shrinkY = new DoubleAnimation(1, 0.65, new Duration(TimeSpan.FromMilliseconds(150)))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+
+            _logoIcon.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkX);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrinkY);
+
+            try { await Task.Delay(160, ct); }
+            catch (OperationCanceledException) { return; }
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_textView.IsClosed) return;
+
+            // Swap moniker while invisible; latch local values and release phase-1 hold
+            _logoIcon.Moniker = newMoniker;
+            _logoIcon.Opacity = 0;
+            _iconScale.ScaleX = 0.65;
+            _iconScale.ScaleY = 0.65;
+            _logoIcon.BeginAnimation(UIElement.OpacityProperty, null);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+
+            // Phase 2: fade in + grow with a small overshoot bounce (300 ms)
+            var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            var growX = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+            growX.KeyFrames.Add(new LinearDoubleKeyFrame(0.65, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            growX.KeyFrames.Add(new EasingDoubleKeyFrame(1.12, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(220)))
+                { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 } });
+            growX.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(300)))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+            var growY = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+            growY.KeyFrames.Add(new LinearDoubleKeyFrame(0.65, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            growY.KeyFrames.Add(new EasingDoubleKeyFrame(1.12, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(220)))
+                { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 } });
+            growY.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(300)))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+
+            _logoIcon.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleXProperty, growX);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleYProperty, growY);
+
+            try { await Task.Delay(310, ct); }
+            catch (OperationCanceledException) { return; }
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (!_textView.IsClosed)
+                ResetIconState();
+        }
+
+        private void ResetIconState()
+        {
+            _logoIcon.Opacity = 1;
+            _logoIcon.BeginAnimation(UIElement.OpacityProperty, null);
+            _iconScale.ScaleX = 1;
+            _iconScale.ScaleY = 1;
+            _iconScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            _iconScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        }
 
         private void OnViewGotAggregateFocus(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
 
@@ -177,11 +292,11 @@ namespace HubitatVS
             if (width <= 0 || height <= 0)
                 return false;
 
-            var left = _textView.ViewportLeft + _textView.ViewportWidth - width - RightMargin;
-            var top = _textView.ViewportTop + _textView.ViewportHeight - height - BottomMargin;
+            var left = _textView.ViewportLeft + _textView.ViewportWidth - width - _rightMargin;
+            var top = _textView.ViewportTop + _textView.ViewportHeight - height - _bottomMargin;
 
-            left = Math.Max(_textView.ViewportLeft + RightMargin, left);
-            top = Math.Max(_textView.ViewportTop + BottomMargin, top);
+            left = Math.Max(_textView.ViewportLeft + _rightMargin, left);
+            top = Math.Max(_textView.ViewportTop + _bottomMargin, top);
 
             if (double.IsNaN(left) || double.IsInfinity(left) || double.IsNaN(top) || double.IsInfinity(top))
                 return false;
@@ -352,7 +467,7 @@ namespace HubitatVS
             {
                 PruneAdornmentInfoCache_NoLock(now);
 
-                if (_adornmentInfoCache.TryGetValue(key, out var cached) && now - cached.Timestamp <= AdornmentInfoCacheTtl)
+                if (_adornmentInfoCache.TryGetValue(key, out var cached) && now - cached.Timestamp <= _adornmentInfoCacheTtl)
                 {
                     return Task.FromResult(cached.Entry);
                 }
@@ -378,7 +493,7 @@ namespace HubitatVS
             try
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeoutCts.CancelAfter(HubInfoTimeout);
+                timeoutCts.CancelAfter(_hubInfoTimeout);
 
                 using var client = new HubitatHubClient(hub);
                 var entry = await client.GetAdornmentInfoAsync(
@@ -405,8 +520,9 @@ namespace HubitatVS
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
+                ex.Log();
                 var entry = CreateUnavailableEntry(hub.Name, candidate.Kind);
 
                 lock (_cacheLock)
@@ -446,17 +562,17 @@ namespace HubitatVS
         private void PruneAdornmentInfoCache_NoLock(DateTimeOffset now)
         {
             foreach (var expired in _adornmentInfoCache
-                .Where(kvp => now - kvp.Value.Timestamp > AdornmentInfoCacheTtl)
+                .Where(kvp => now - kvp.Value.Timestamp > _adornmentInfoCacheTtl)
                 .Select(kvp => kvp.Key)
                 .ToList())
             {
                 _adornmentInfoCache.Remove(expired);
             }
 
-            if (_adornmentInfoCache.Count <= MaxAdornmentCacheEntries)
+            if (_adornmentInfoCache.Count <= _maxAdornmentCacheEntries)
                 return;
 
-            var overflow = _adornmentInfoCache.Count - MaxAdornmentCacheEntries;
+            var overflow = _adornmentInfoCache.Count - _maxAdornmentCacheEntries;
             foreach (var key in _adornmentInfoCache
                 .OrderBy(kvp => kvp.Value.Timestamp)
                 .Take(overflow)

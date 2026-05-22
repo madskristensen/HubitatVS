@@ -557,9 +557,10 @@ namespace HubitatVS
                 DateTimeOffset.TryParse(match.LastModified, out var lm))
                 lastModified = lm;
 
+            var usedByCount = match.UsedBy?.Count ?? 0;
             var count = kind == HubitatCodeKind.Driver
-                ? (detail.InstalledDriverCount ?? 0)
-                : (detail.InstalledAppCount ?? 0);
+                ? (detail.InstalledDriverCount ?? usedByCount)
+                : (detail.InstalledAppCount ?? usedByCount);
 
             return new HubitatHubInfoEntry
             {
@@ -581,9 +582,85 @@ namespace HubitatVS
             IEnumerable<HubitatCodeListEntry> entries,
             string name,
             string namespaceName)
-            => entries.FirstOrDefault(entry =>
-                string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase) &&
-                (string.IsNullOrEmpty(namespaceName) || string.Equals(entry.Namespace, namespaceName, StringComparison.OrdinalIgnoreCase)));
+        {
+            var entryList = entries?.ToList();
+            if (entryList == null || entryList.Count == 0)
+            {
+                return null;
+            }
+
+            var normalizedNamespace = NormalizeComparableText(namespaceName);
+            if (!string.IsNullOrEmpty(normalizedNamespace))
+            {
+                var namespaced = entryList
+                    .Where(entry => string.Equals(NormalizeComparableText(entry.Namespace), normalizedNamespace, StringComparison.Ordinal))
+                    .ToList();
+
+                var namespacedMatch = MatchByName(namespaced, name);
+                if (namespacedMatch != null)
+                {
+                    return namespacedMatch;
+                }
+            }
+
+            return MatchByName(entryList, name);
+        }
+
+        private static HubitatCodeListEntry MatchByName(IReadOnlyList<HubitatCodeListEntry> entries, string name)
+        {
+            if (entries == null || entries.Count == 0)
+            {
+                return null;
+            }
+
+            var normalizedName = NormalizeComparableText(name);
+            var canonicalName = CanonicalizeName(name);
+
+            var exact = entries.FirstOrDefault(entry =>
+                string.Equals(NormalizeComparableText(entry.Name), normalizedName, StringComparison.Ordinal));
+            if (exact != null)
+            {
+                return exact;
+            }
+
+            var canonicalMatches = entries.Where(entry =>
+                    string.Equals(CanonicalizeName(entry.Name), canonicalName, StringComparison.Ordinal))
+                .ToList();
+
+            if (canonicalMatches.Count == 1)
+            {
+                return canonicalMatches[0];
+            }
+
+            return canonicalMatches.FirstOrDefault(entry =>
+                string.Equals(NormalizeComparableText(entry.Name), normalizedName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizeComparableText(string? value)
+        {
+            var decoded = WebUtility.HtmlDecode(value ?? string.Empty).Trim();
+            return Regex.Replace(decoded, @"\s+", " ");
+        }
+
+        private static string CanonicalizeName(string? value)
+        {
+            var comparable = NormalizeComparableText(value);
+            if (comparable.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var buffer = new StringBuilder(comparable.Length);
+            foreach (var ch in comparable)
+            {
+                if (char.IsLetterOrDigit(ch))
+                {
+                    buffer.Append(char.ToLowerInvariant(ch));
+                }
+            }
+
+            return buffer.ToString();
+        }
 
         private static string NormalizeSource(string? source)
             => (source ?? string.Empty).Replace("\r\n", "\n").Trim();

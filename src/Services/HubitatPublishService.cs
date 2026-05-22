@@ -13,7 +13,7 @@ namespace HubitatVS
         /// <summary>Selects a hub (prompting if multiple) then publishes a single file.</summary>
         public static async Task PublishFileAsync(string filePath)
         {
-            var pane = await HubitatOutput.GetPaneAsync();
+            IVsOutputWindowPane pane = await HubitatOutput.GetPaneAsync();
             await ActivatePaneAsync(pane);
 
             await VS.StatusBar.ShowMessageAsync("Publishing to Hubitat…");
@@ -105,6 +105,7 @@ namespace HubitatVS
                     }
                 }
 
+                HubitatPublishTracker.NotifyPublishStarted(filePath);
                 HubitatPublishResult result;
                 try
                 {
@@ -123,6 +124,7 @@ namespace HubitatVS
                     };
                 }
 
+                HubitatPublishTracker.NotifyPublishCompleted(filePath, result.Success);
                 var icon = result.Success ? "✓" : "✗";
                 var versionSuffix = result.Success && result.PublishedVersion.HasValue
                     ? $" (version {result.PublishedVersion.Value})"
