@@ -24,6 +24,7 @@ namespace HubitatVS
         private readonly StackPanel _textStack;
         private CrispImage _logoIcon;
         private ScaleTransform _iconScale;
+        private RotateTransform _iconRotate;
         private CancellationTokenSource _iconAnimationCts;
 
         private readonly HubitatRefreshCoordinator _refreshCoordinator;
@@ -61,7 +62,11 @@ namespace HubitatVS
             };
             SetIconToolTipIfNeeded(RuntimeMonikers.HubitatLogoMoniker, null);
             _iconScale = new ScaleTransform(1, 1);
-            _logoIcon.RenderTransform = _iconScale;
+            _iconRotate = new RotateTransform(0);
+            var iconTransform = new TransformGroup();
+            iconTransform.Children.Add(_iconRotate);
+            iconTransform.Children.Add(_iconScale);
+            _logoIcon.RenderTransform = iconTransform;
             _logoIcon.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
 
             var outer = new StackPanel
@@ -155,7 +160,7 @@ namespace HubitatVS
 
                 var isPublishing = e.State == HubitatPublishState.Publishing;
                 var newMoniker = isPublishing
-                    ? KnownMonikers.Upload
+                    ? KnownMonikers.Refresh
                     : e.State == HubitatPublishState.Success
                         ? KnownMonikers.StatusOKOutline
                         : KnownMonikers.StatusErrorOutline;
@@ -167,14 +172,26 @@ namespace HubitatVS
 
                 await SwapLogoIconAsync(newMoniker, iconTooltip, cts.Token);
 
-                if (e.State != HubitatPublishState.Publishing)
+                if (isPublishing)
                 {
-                    try { await Task.Delay(2000, cts.Token); }
-                    catch (OperationCanceledException) { return; }
-
-                    await SwapLogoIconAsync(RuntimeMonikers.HubitatLogoMoniker, null, cts.Token);
+                    StartIconSpinner();
+                    return;
                 }
+
+                try { await Task.Delay(2000, cts.Token); }
+                catch (OperationCanceledException) { return; }
+
+                await SwapLogoIconAsync(RuntimeMonikers.HubitatLogoMoniker, null, cts.Token);
             });
+        }
+
+        private void StartIconSpinner()
+        {
+            var spin = new DoubleAnimation(0, 360, new Duration(TimeSpan.FromMilliseconds(950)))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+            };
+            _iconRotate.BeginAnimation(RotateTransform.AngleProperty, spin);
         }
 
         private async Task SwapLogoIconAsync(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker newMoniker, string? iconToolTip, CancellationToken ct)
@@ -257,6 +274,8 @@ namespace HubitatVS
         {
             _logoIcon.Opacity = 1;
             _logoIcon.BeginAnimation(UIElement.OpacityProperty, null);
+            _iconRotate.Angle = 0;
+            _iconRotate.BeginAnimation(RotateTransform.AngleProperty, null);
             _iconScale.ScaleX = 1;
             _iconScale.ScaleY = 1;
             _iconScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);

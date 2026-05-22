@@ -23,7 +23,6 @@ namespace HubitatVS
         })]
     [ProvideAutoLoad(PackageGuids.GroovyEditorOpenContextString, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideProfile(typeof(HubitatHubSettingsDialogPage), "Hubitat", "Hub Connections", 0, 0, true)]
-    //[ProvideBindingPath()]
     [Guid(PackageGuids.HubitatVSString)]
     public sealed class HubitatVSPackage : ToolkitPackage
     {
