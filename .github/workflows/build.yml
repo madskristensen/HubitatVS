@@ -67,7 +67,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: ${{ github.event.repository.name }}.vsix
-        path: src\bin\${{ env.Configuration }}\net48\*.vsix
+        path: src\bin\${{ env.Configuration }}\net48\${{ github.event.repository.name }}.vsix
 
   publish:
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
@@ -87,13 +87,13 @@ jobs:
       - name: Upload to Open VSIX
         uses: madskristensen/publish-vsixgallery@v1
         with:
-          vsix-file: '*.vsix'
+          vsix-file: ${{ github.event.repository.name }}.vsix
 
       - name: Publish extension to Marketplace
         if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]') }}
         uses: madskristensen/publish-marketplace@v2
         with:
-          extension-file: '*.vsix'
+          extension-file: ${{ github.event.repository.name }}.vsix
           publish-manifest-file: 'vs-publish.json'
           personal-access-code: ${{ secrets.VS_PUBLISHER_ACCESS_TOKEN }}
 
