@@ -101,6 +101,49 @@ namespace HubitatVS.Tests
             Assert.IsNull(client.LastTargetId);
         }
 
+        [TestMethod]
+        public async Task PublishAsync_ThrowsForNullArguments()
+        {
+            var client = new FakeClient();
+            var candidate = CreateCandidate(HubitatCodeKind.Driver, "Test Driver", "mads");
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(async () =>
+                await HubitatPublishWorkflow.PublishAsync(null!, "source", client, (_, _, _) => Task.FromResult(new HubitatPublishTargetSelection(false, null)), CancellationToken.None));
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(async () =>
+                await HubitatPublishWorkflow.PublishAsync(candidate, "source", null!, (_, _, _) => Task.FromResult(new HubitatPublishTargetSelection(false, null)), CancellationToken.None));
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(async () =>
+                await HubitatPublishWorkflow.PublishAsync(candidate, "source", client, null!, CancellationToken.None));
+        }
+
+        [TestMethod]
+        public async Task PublishAsync_WithNamespaceAndNoMatches_UsesPublishToTargetWithoutPrompt()
+        {
+            var client = new FakeClient
+            {
+                NamespaceMatches = Array.Empty<HubitatCodeEntry>()
+            };
+            var candidate = CreateCandidate(HubitatCodeKind.Driver, "Test Driver", "mads");
+            var promptCalls = 0;
+
+            var result = await HubitatPublishWorkflow.PublishAsync(
+                candidate,
+                "source",
+                client,
+                (_, _, _) =>
+                {
+                    promptCalls++;
+                    return Task.FromResult(new HubitatPublishTargetSelection(false, null));
+                },
+                CancellationToken.None);
+
+            Assert.IsFalse(result.Cancelled);
+            Assert.AreEqual(0, promptCalls);
+            Assert.AreEqual(1, client.PublishToTargetCalls);
+            Assert.IsNull(client.LastTargetId);
+        }
+
         private static HubitatCodeCandidate CreateCandidate(HubitatCodeKind kind, string name, string namespaceName)
             => new HubitatCodeCandidate("C:\\repo\\file.groovy", name, namespaceName, "Author", "1.0.0", kind, Array.Empty<string>());
 

@@ -77,6 +77,20 @@ namespace HubitatVS.Tests
             Assert.AreNotEqual('a', result[result.Length - 1]);
         }
 
+        [TestMethod]
+        public void NormalizeComparableText_DecodesHtmlAndNormalizesWhitespace()
+        {
+            var normalized = InvokePrivateStatic<string>("NormalizeComparableText", "  A&amp;B   Device\tName  ");
+            Assert.AreEqual("A&B Device Name", normalized);
+        }
+
+        [TestMethod]
+        public void CanonicalizeName_RemovesPunctuationAndLowercases()
+        {
+            var canonical = InvokePrivateStatic<string>("CanonicalizeName", "My-Driver (v2)! ");
+            Assert.AreEqual("mydriverv2", canonical);
+        }
+
         private static object CreateDescriptor(HubitatCodeKind kind, string editorBasePath)
         {
             var type = ClientType.GetNestedType("HubitatCodeDescriptor", BindingFlags.NonPublic)!;

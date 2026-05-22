@@ -101,6 +101,66 @@ namespace HubitatVS.Tests
             Assert.AreEqual(1, info.UsedByNames.Count);
         }
 
+        [TestMethod]
+        public async Task GetNamespaceMatchesAsync_ReturnsEmpty_WhenEndpointFails()
+        {
+            var handler = new QueueMessageHandler();
+            handler.EnqueueJson("{}", HttpStatusCode.InternalServerError);
+            using var client = CreateClient(handler);
+
+            var matches = await client.GetNamespaceMatchesAsync(HubitatCodeKind.Driver, "mads");
+
+            Assert.AreEqual(0, matches.Count);
+        }
+
+        [TestMethod]
+        public async Task DownloadCodeSourceAsync_ReturnsNull_WhenEndpointFails()
+        {
+            var handler = new QueueMessageHandler();
+            handler.EnqueueJson("{\"error\":\"missing\"}", HttpStatusCode.NotFound);
+            using var client = CreateClient(handler);
+
+            var source = await client.DownloadCodeSourceAsync(HubitatCodeKind.Driver, 77);
+
+            Assert.IsNull(source);
+        }
+
+        [TestMethod]
+        public async Task TestConnectionAsync_ReturnsFalse_WhenHubIdMissing()
+        {
+            var handler = new QueueMessageHandler();
+            handler.EnqueueJson("{\"status\":\"ok\"}");
+            using var client = CreateClient(handler);
+
+            var connected = await client.TestConnectionAsync();
+
+            Assert.IsFalse(connected);
+        }
+
+        [TestMethod]
+        public async Task PublishAsync_ReturnsFailure_ForUnknownKindWithoutHttpCalls()
+        {
+            var handler = new QueueMessageHandler();
+            using var client = CreateClient(handler);
+
+            var candidate = CreateCandidate(HubitatCodeKind.Unknown, "Unknown", "mads");
+            var result = await client.PublishAsync(candidate, "source");
+
+            Assert.IsFalse(result.Success);
+            StringAssert.Contains(result.Message, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+        }
+
+        [TestMethod]
+        public async Task GetNamespaceMatchesAsync_Throws_OnMalformedJson()
+        {
+            var handler = new QueueMessageHandler();
+            handler.EnqueueJson("{not-json");
+            using var client = CreateClient(handler);
+
+            await Assert.ThrowsExceptionAsync<Newtonsoft.Json.JsonReaderException>(async () =>
+                await client.GetNamespaceMatchesAsync(HubitatCodeKind.Driver, "mads"));
+        }
+
         private static HubitatCodeCandidate CreateCandidate(HubitatCodeKind kind, string name, string namespaceName)
             => new HubitatCodeCandidate("C:\\repo\\file.groovy", name, namespaceName, "Author", "1.0.0", kind, Array.Empty<string>());
 

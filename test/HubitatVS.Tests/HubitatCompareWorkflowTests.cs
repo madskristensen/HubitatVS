@@ -66,6 +66,36 @@ namespace HubitatVS.Tests
             Assert.AreEqual(9, result.Match!.Id);
         }
 
+        [TestMethod]
+        public async Task ResolveAsync_ThrowsForNullArguments()
+        {
+            var client = new FakeClient();
+            var candidate = CreateCandidate();
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(async () =>
+                await HubitatCompareWorkflow.ResolveAsync(null!, candidate));
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(async () =>
+                await HubitatCompareWorkflow.ResolveAsync(client, null!));
+        }
+
+        [TestMethod]
+        public async Task ResolveAsync_TreatsEmptyDownloadAsFailure()
+        {
+            var client = new FakeClient
+            {
+                NamespaceMatches = new List<HubitatCodeEntry>
+                {
+                    new HubitatCodeEntry { Id = 9, Name = "Target", Namespace = "mads" }
+                },
+                DownloadSource = string.Empty
+            };
+
+            var result = await HubitatCompareWorkflow.ResolveAsync(client, CreateCandidate());
+
+            Assert.AreEqual(HubitatCompareFailure.DownloadFailed, result.Failure);
+        }
+
         private static HubitatCodeCandidate CreateCandidate()
             => new HubitatCodeCandidate("C:\\repo\\target.groovy", "Target", "mads", "Author", "1.0.0", HubitatCodeKind.Driver, Array.Empty<string>());
 

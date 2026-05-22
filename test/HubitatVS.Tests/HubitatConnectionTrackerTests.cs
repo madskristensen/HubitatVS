@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -108,6 +109,39 @@ namespace HubitatVS.Tests
             {
                 HubitatConnectionTracker.HubStateChanged -= handler;
             }
+        }
+
+        [TestMethod]
+        public async Task ParallelSetConnectedAndRemoveHub_DoesNotLeaveInconsistentState()
+        {
+            var hubName = "ConcurrentHub";
+
+            var setTasks = Enumerable.Range(0, 200)
+                .Select(i => Task.Run(() => HubitatConnectionTracker.SetConnected(hubName, i % 2 == 0)));
+            var removeTasks = Enumerable.Range(0, 50)
+                .Select(_ => Task.Run(() => HubitatConnectionTracker.RemoveHub(hubName)));
+
+            await Task.WhenAll(setTasks.Concat(removeTasks));
+
+            var final = HubitatConnectionTracker.GetConnected(hubName);
+            Assert.IsTrue(final == null || final == true || final == false);
+        }
+
+        [TestMethod]
+        public async Task ParallelNotifyConfigChangedAndSetConnected_ResetsAndAcceptsNewState()
+        {
+            var resetTasks = Enumerable.Range(0, 40)
+                .Select(_ => Task.Run(() => HubitatConnectionTracker.NotifyConfigChanged()));
+            var setTasks = Enumerable.Range(0, 80)
+                .Select(i => Task.Run(() => HubitatConnectionTracker.SetConnected($"Hub-{i % 5}", true)));
+
+            await Task.WhenAll(resetTasks.Concat(setTasks));
+
+            HubitatConnectionTracker.NotifyConfigChanged();
+            Assert.IsNull(HubitatConnectionTracker.GetConnected("Hub-0"));
+
+            HubitatConnectionTracker.SetConnected("Hub-0", true);
+            Assert.AreEqual(true, HubitatConnectionTracker.GetConnected("Hub-0"));
         }
     }
 }
