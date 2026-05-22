@@ -9,6 +9,8 @@ namespace HubitatVS
     internal static class HubitatPublishService
     {
         private static RatingPrompt _ratingPrompt = new("MadsKristensen.HubitatVS", Vsix.Name, HubitatHubSettings.Instance, 2);
+        private static readonly object PublishInProgressLock = new object();
+        private static readonly HashSet<string> PublishInProgressFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Selects a hub (prompting if multiple) then publishes a single file.</summary>
         public static async Task PublishFileAsync(string filePath)
@@ -34,6 +36,25 @@ namespace HubitatVS
                 return;
 
             await PublishFilesAsync(new[] { filePath }, hub);
+        }
+
+        public static async Task PublishFileIfNotInProgressAsync(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var normalizedPath = filePath.Trim();
+            if (!TryBeginPublish(normalizedPath))
+                return;
+
+            try
+            {
+                await PublishFileAsync(normalizedPath);
+            }
+            finally
+            {
+                EndPublish(normalizedPath);
+            }
         }
 
         public static async Task PublishFilesAsync(IList<string> filePaths, HubitatHubConfig hub)
@@ -178,6 +199,22 @@ namespace HubitatVS
             }
 
             return parts.Count == 0 ? string.Empty : string.Join("\r\n", parts);
+        }
+
+        private static bool TryBeginPublish(string filePath)
+        {
+            lock (PublishInProgressLock)
+            {
+                return PublishInProgressFiles.Add(filePath);
+            }
+        }
+
+        private static void EndPublish(string filePath)
+        {
+            lock (PublishInProgressLock)
+            {
+                PublishInProgressFiles.Remove(filePath);
+            }
         }
     }
 }

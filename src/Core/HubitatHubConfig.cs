@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using System.ComponentModel;
 
 namespace HubitatVS
@@ -9,6 +10,7 @@ namespace HubitatVS
         public string Username { get; set; } = string.Empty;
 
         [Browsable(false)]
+        [JsonIgnore]
         public string Password { get; set; } = string.Empty;
     }
 }

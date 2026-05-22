@@ -34,6 +34,7 @@ namespace HubitatVS
         private readonly object _cacheLock = new object();
         private bool _pendingInitialLayoutRefresh = true;
         private bool _hasRenderedContent;
+        private int _publishOnSaveInProgress;
 
         private static readonly TimeSpan _adornmentInfoCacheTtl = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan _hubInfoTimeout = TimeSpan.FromSeconds(4);
@@ -58,6 +59,7 @@ namespace HubitatVS
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            SetIconToolTipIfNeeded(RuntimeMonikers.HubitatLogoMoniker, null);
             _iconScale = new ScaleTransform(1, 1);
             _logoIcon.RenderTransform = _iconScale;
             _logoIcon.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
@@ -95,6 +97,7 @@ namespace HubitatVS
             _textView.Closed += OnViewClosed;
             HubitatConnectionTracker.HubsChanged += OnHubsChanged;
             HubitatPublishTracker.PublishStateChanged += OnPublishStateChanged;
+            RuntimeMonikers.HubitatLogoMonikerUpdated += OnHubitatLogoMonikerUpdated;
 
             TriggerRefresh();
         }
@@ -129,6 +132,7 @@ namespace HubitatVS
             _textView.Closed -= OnViewClosed;
             HubitatConnectionTracker.HubsChanged -= OnHubsChanged;
             HubitatPublishTracker.PublishStateChanged -= OnPublishStateChanged;
+            RuntimeMonikers.HubitatLogoMonikerUpdated -= OnHubitatLogoMonikerUpdated;
             _iconAnimationCts?.Cancel();
             _refreshCoordinator.Dispose();
         }
@@ -149,25 +153,31 @@ namespace HubitatVS
                 _iconAnimationCts = new CancellationTokenSource();
                 var cts = _iconAnimationCts;
 
-                var newMoniker = e.State == HubitatPublishState.Publishing
+                var isPublishing = e.State == HubitatPublishState.Publishing;
+                var newMoniker = isPublishing
                     ? KnownMonikers.Upload
                     : e.State == HubitatPublishState.Success
                         ? KnownMonikers.StatusOKOutline
                         : KnownMonikers.StatusErrorOutline;
+                var iconTooltip = isPublishing
+                    ? "Publishing to Hubitat"
+                    : e.State == HubitatPublishState.Success
+                        ? "Published to Hubitat successfully"
+                        : "Publish to Hubitat failed";
 
-                await SwapLogoIconAsync(newMoniker, cts.Token);
+                await SwapLogoIconAsync(newMoniker, iconTooltip, cts.Token);
 
                 if (e.State != HubitatPublishState.Publishing)
                 {
                     try { await Task.Delay(2000, cts.Token); }
                     catch (OperationCanceledException) { return; }
 
-                    await SwapLogoIconAsync(RuntimeMonikers.HubitatLogoMoniker, cts.Token);
+                    await SwapLogoIconAsync(RuntimeMonikers.HubitatLogoMoniker, null, cts.Token);
                 }
             });
         }
 
-        private async Task SwapLogoIconAsync(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker newMoniker, CancellationToken ct)
+        private async Task SwapLogoIconAsync(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker newMoniker, string? iconToolTip, CancellationToken ct)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             if (_textView.IsClosed) return;
@@ -204,6 +214,7 @@ namespace HubitatVS
 
             // Swap moniker while invisible; latch local values and release phase-1 hold
             _logoIcon.Moniker = newMoniker;
+            SetIconToolTipIfNeeded(newMoniker, iconToolTip);
             _logoIcon.Opacity = 0;
             _iconScale.ScaleX = 0.65;
             _iconScale.ScaleY = 0.65;
@@ -252,12 +263,66 @@ namespace HubitatVS
             _iconScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         }
 
+        private void OnHubitatLogoMonikerUpdated(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker logoMoniker)
+        {
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (_textView.IsClosed)
+                    return;
+
+                // Keep transient publish/failure/success icons until their own flow restores the logo.
+                if (ToolTipService.GetToolTip(_logoIcon) != null)
+                    return;
+
+                _logoIcon.Moniker = logoMoniker;
+                SetIconToolTipIfNeeded(logoMoniker, null);
+            });
+        }
+
+        private void SetIconToolTipIfNeeded(Microsoft.VisualStudio.Imaging.Interop.ImageMoniker moniker, string? iconToolTip)
+        {
+            if (RuntimeMonikers.IsHubitatLogoMoniker(moniker))
+            {
+                ToolTipService.SetToolTip(_logoIcon, null);
+                return;
+            }
+
+            ToolTipService.SetToolTip(_logoIcon, string.IsNullOrWhiteSpace(iconToolTip) ? "Hubitat status" : iconToolTip);
+        }
+
         private void OnViewGotAggregateFocus(object sender, EventArgs e) => TriggerRefresh(cancelRunning: false);
 
         private void OnDocumentFileActionOccurred(object sender, TextDocumentFileActionEventArgs e)
         {
-            if ((e.FileActionType & FileActionTypes.ContentSavedToDisk) != 0)
-                TriggerRefresh();
+            if ((e.FileActionType & FileActionTypes.ContentSavedToDisk) == 0)
+                return;
+
+            TriggerRefresh();
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(PublishOnSaveIfEnabledAsync);
+        }
+
+        private async Task PublishOnSaveIfEnabledAsync()
+        {
+            if (Interlocked.Exchange(ref _publishOnSaveInProgress, 1) == 1)
+                return;
+
+            try
+            {
+                var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+                if (!settings.PublishOnSaveEnabled)
+                    return;
+
+                await HubitatPublishService.PublishFileIfNotInProgressAsync(_filePath);
+            }
+            catch (Exception ex)
+            {
+                await ex.LogAsync();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _publishOnSaveInProgress, 0);
+            }
         }
 
         private void OnAdornmentRightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)

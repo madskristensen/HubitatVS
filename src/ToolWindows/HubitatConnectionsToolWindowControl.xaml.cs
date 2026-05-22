@@ -24,6 +24,7 @@ namespace HubitatVS
                     _trackerSubscribed = true;
                 }
 
+                await ScrubLegacyPasswordStorageAsync();
                 await ViewModel.ReloadHubsAsync();
                 if (!_testedThisSession)
                 {
@@ -176,6 +177,21 @@ namespace HubitatVS
             {
                 await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
             }
+        }
+
+        private async Task ScrubLegacyPasswordStorageAsync()
+        {
+            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+            if (settings.HubsJson.IndexOf("\"Password\"", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+
+            var hubs = settings.GetHubs();
+            foreach (var hub in hubs)
+                hub.Password = string.Empty;
+
+            settings.SetHubs(hubs);
+            await settings.SaveAsync();
+            HubitatHubSettings.InvalidateCache();
         }
 
         private void ClearForm_Click(object sender, RoutedEventArgs e)

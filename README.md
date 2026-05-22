@@ -24,6 +24,8 @@ or get the [CI build][vsixgallery].
 - **Compare with Hub** — Diff your local Groovy file against the version currently on the hub using Visual Studio's built-in diff viewer
 - **Connection Validation** — Verify hub connectivity before publishing
 - **Editor Adornment Status** — View connected hub publish state directly in the editor (in sync, differs, or not published)
+- **Publish on Save (Optional)** — Toggle automatic publishing from the editor adornment context menu
+- **Secure Credential Storage** — Hub passwords are stored in Windows Credential Manager, not in settings JSON
 - **Build Integration** — Seamlessly integrated commands for Groovy projects
 
 ## Getting Started

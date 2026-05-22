@@ -11,7 +11,17 @@ namespace HubitatVS
     [InstalledProductRegistration(Vsix.Name, Vsix.Description, Vsix.Version)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(HubitatConnectionsToolWindow.Pane), Style = VsDockStyle.Tabbed, Window = WindowGuids.OutputWindow)]
-    //[ProvideAutoLoad("4646B819-1AE0-4E79-97F4-8A8176FDD664", PackageAutoLoadFlags.BackgroundLoad)]
+    [ProvideUIContextRule(
+        PackageGuids.GroovyEditorOpenContextString,
+        name: "Hubitat .groovy editor open",
+        expression: "GroovyContentType | TextMateGroovyContentType",
+        termNames: new[] { "GroovyContentType", "TextMateGroovyContentType" },
+        termValues: new[]
+        {
+            "ActiveEditorContentType:groovy",
+            "ActiveEditorContentType:code++.groovy"
+        })]
+    [ProvideAutoLoad(PackageGuids.GroovyEditorOpenContextString, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideProfile(typeof(HubitatHubSettingsDialogPage), "Hubitat", "Hub Connections", 0, 0, true)]
     //[ProvideBindingPath()]
     [Guid(PackageGuids.HubitatVSString)]

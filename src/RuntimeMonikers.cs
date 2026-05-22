@@ -11,6 +11,7 @@ namespace HubitatVS
         private static IImageHandle _hubitatLogoHandle;
 
         internal static ImageMoniker HubitatLogoMoniker { get; private set; } = KnownMonikers.StatusInformation;
+        internal static event Action<ImageMoniker>? HubitatLogoMonikerUpdated;
 
         internal static async Task InitializeAsync(AsyncPackage package, CancellationToken cancellationToken)
         {
@@ -28,6 +29,12 @@ namespace HubitatVS
 
             _hubitatLogoHandle = imageService.AddCustomImage(image, canTheme: false);
             HubitatLogoMoniker = _hubitatLogoHandle.Moniker;
+            HubitatLogoMonikerUpdated?.Invoke(HubitatLogoMoniker);
         }
+
+        internal static bool IsCustomHubitatLogoAvailable => _hubitatLogoHandle != null;
+
+        internal static bool IsHubitatLogoMoniker(ImageMoniker moniker)
+            => moniker.Guid == HubitatLogoMoniker.Guid && moniker.Id == HubitatLogoMoniker.Id;
     }
 }

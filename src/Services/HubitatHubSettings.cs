@@ -18,12 +18,20 @@ namespace HubitatVS
         [Browsable(false)]
         public int RatingRequests { get; set; }
 
+        [Browsable(false)]
+        public bool PublishOnSaveEnabled { get; set; }
+
         public List<HubitatHubConfig> GetHubs()
         {
             try
             {
-                return JsonConvert.DeserializeObject<List<HubitatHubConfig>>(HubsJson)
+                var hubs = JsonConvert.DeserializeObject<List<HubitatHubConfig>>(HubsJson)
                     ?? new List<HubitatHubConfig>();
+
+                foreach (var hub in hubs)
+                    hub.Password = HubitatCredentialStore.ReadPassword(hub);
+
+                return hubs;
             }
             catch (Exception ex)
             {
@@ -34,6 +42,22 @@ namespace HubitatVS
 
         public void SetHubs(List<HubitatHubConfig> hubs)
         {
+            var previousHubs = GetStoredHubsFromJson();
+
+            foreach (var previousHub in previousHubs)
+            {
+                if (!hubs.Any(current => IsSameHub(previousHub, current)))
+                    HubitatCredentialStore.DeletePassword(previousHub);
+            }
+
+            foreach (var hub in hubs)
+            {
+                if (string.IsNullOrWhiteSpace(hub.Password))
+                    HubitatCredentialStore.DeletePassword(hub);
+                else
+                    HubitatCredentialStore.SavePassword(hub, hub.Password);
+            }
+
             HubsJson = JsonConvert.SerializeObject(hubs);
             InvalidateCache();
         }
@@ -75,6 +99,24 @@ namespace HubitatVS
                 Username = h.Username,
                 Password = h.Password
             }).ToList();
+
+        private List<HubitatHubConfig> GetStoredHubsFromJson()
+        {
+            try
+            {
+                return JsonConvert.DeserializeObject<List<HubitatHubConfig>>(HubsJson)
+                    ?? new List<HubitatHubConfig>();
+            }
+            catch (Exception ex)
+            {
+                ex.Log();
+                return new List<HubitatHubConfig>();
+            }
+        }
+
+        private static bool IsSameHub(HubitatHubConfig left, HubitatHubConfig right)
+            => string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase);
     }
 
     [System.Runtime.InteropServices.ComVisible(true)]

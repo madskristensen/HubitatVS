@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <AvailableItemName Include="VSCTCompile" />
+    <None Remove="cpdqqm3z.k15~" />
     <None Remove="VSCommandTable.vsct" />
     <VSCTCompile Include="VSCommandTable.vsct">
       <ResourceName>Menus.ctmenu</ResourceName>

@@ -72,6 +72,15 @@
           <LocCanonicalName>.HubitatVS.CompareWithHubCommand</LocCanonicalName>
         </Strings>
       </Button>
+
+      <Button guid="HubitatVS" id="TogglePublishOnSaveCommand" priority="0x0300" type="Button">
+        <Parent guid="HubitatVS" id="HubitatAdornmentContextMenuGroup"/>
+        <CommandFlag>DynamicVisibility</CommandFlag>
+        <Strings>
+          <ButtonText>Publish on Save</ButtonText>
+          <LocCanonicalName>.HubitatVS.TogglePublishOnSaveCommand</LocCanonicalName>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
 
@@ -102,6 +111,7 @@
       <IDSymbol name="CompareWithHubCommand" value="0x0106" />
       <IDSymbol name="HubitatAdornmentContextMenu" value="0x0107" />
       <IDSymbol name="HubitatAdornmentContextMenuGroup" value="0x0108" />
+      <IDSymbol name="TogglePublishOnSaveCommand" value="0x0109" />
     </GuidSymbol>
 
     <GuidSymbol name="guidWorkspaceExplorerToolWindowPackageCmdSet" value="{cfb400f1-5c60-4f3c-856e-180d28def0b7}">
