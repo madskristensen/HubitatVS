@@ -1,11 +1,14 @@
 [marketplace]: <https://marketplace.visualstudio.com/items?itemName=MadsKristensen.HubitatVS>
+[vsixgallery]: <http://vsixgallery.com/extension/HubitatVS.c2faad63-3412-4f74-b17d-e0f8338ae2c8/>
 [repo]: <https://github.com/madskristensen/HubitatVS>
 
 # Hubitat Publish Tools for Visual Studio
 
-[![Build](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yaml/badge.svg)](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yaml)
+[![Build](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yml/badge.svg)](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yml)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/madskristensen)
 
-Download this extension from the [Visual Studio Marketplace][marketplace].
+Download this extension from the [Visual Studio Marketplace][marketplace]
+or get the [CI build][vsixgallery].
 
 ## Overview
 
