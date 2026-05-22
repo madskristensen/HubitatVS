@@ -4,7 +4,6 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace HubitatVS
@@ -86,14 +85,11 @@ namespace HubitatVS
 
             await WriteToPaneAsync(pane, $"Searching for {candidate.Kind.ToString().ToLower()} '{candidate.DisplayName}'...\r\n");
 
-            using var client = new HubitatHubClient(hub);
+            using IHubitatHubClient client = new HubitatHubClient(hub);
 
-            // Find the code on the hub
-            var matches = await client.GetNamespaceMatchesAsync(candidate.Kind, candidate.NamespaceName);
-            var match = matches.FirstOrDefault(m =>
-                string.Equals(m.Name, candidate.DisplayName, StringComparison.OrdinalIgnoreCase));
-
-            if (match == null)
+            // Find and download matching code on the hub
+            var workflowResult = await HubitatCompareWorkflow.ResolveAsync(client, candidate);
+            if (workflowResult.Failure == HubitatCompareFailure.NotFound)
             {
                 await VS.MessageBox.ShowWarningAsync(
                     "Compare with Hub",
@@ -102,17 +98,17 @@ namespace HubitatVS
                 return;
             }
 
-            await WriteToPaneAsync(pane, $"Downloading hub version (ID {match.Id})...\r\n");
-
-            // Download the hub version
-            var hubSource = await client.DownloadCodeSourceAsync(candidate.Kind, match.Id);
-            if (string.IsNullOrEmpty(hubSource))
+            if (workflowResult.Failure == HubitatCompareFailure.DownloadFailed)
             {
                 await VS.MessageBox.ShowErrorAsync(
                     "Compare with Hub",
                     $"Failed to download {candidate.Kind.ToString().ToLower()} source from hub.");
                 return;
             }
+
+            var match = workflowResult.Match!;
+            var hubSource = workflowResult.HubSource!;
+            await WriteToPaneAsync(pane, $"Downloading hub version (ID {match.Id})...\r\n");
 
             // Write temp file
             var tempDir = Path.Combine(Path.GetTempPath(), "HubitatVS");

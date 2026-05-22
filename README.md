@@ -4,7 +4,7 @@
 
 # Hubitat Publish Tools for Visual Studio
 
-[![Build](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yml/badge.svg)](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yml)
+[![Build](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yaml/badge.svg)](https://github.com/madskristensen/HubitatVS/actions/workflows/build.yaml)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/madskristensen)
 
 Download this extension from the [Visual Studio Marketplace][marketplace]

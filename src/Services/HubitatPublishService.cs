@@ -52,7 +52,7 @@ namespace HubitatVS
             int successCount = 0;
             int failCount = 0;
 
-            using var client = new HubitatHubClient(hub);
+            using IHubitatHubClient client = new HubitatHubClient(hub);
 
             for (int i = 0; i < filePaths.Count; i++)
             {
@@ -76,42 +76,24 @@ namespace HubitatVS
 
                 var candidate = HubitatGroovyAnalyzer.AnalyzeSource(source, filePath);
 
-                // Check if we need to prompt the user for target selection
-                int? targetId = null;
-                if (!string.IsNullOrWhiteSpace(candidate.NamespaceName))
-                {
-                    var namespaceMatches = await client.GetNamespaceMatchesAsync(candidate.Kind, candidate.NamespaceName, ct);
-
-                    // Check if there's an exact match (name + namespace)
-                    var exactMatch = namespaceMatches.FirstOrDefault(entry =>
-                        string.Equals(entry.Name, candidate.DisplayName, StringComparison.OrdinalIgnoreCase));
-
-                    if (exactMatch != null)
-                    {
-                        targetId = exactMatch.Id;
-                    }
-                    else if (namespaceMatches.Count > 0)
-                    {
-                        // No exact match, but namespace matches exist - prompt user
-                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        var dialog = new HubitatCodePickerDialog(candidate.DisplayName, candidate.NamespaceName, namespaceMatches);
-                        if (dialog.ShowModal() != true)
-                        {
-                            await WriteToPaneAsync(pane, $"  ⊘ {fileName}: Cancelled by user\r\n");
-                            continue;
-                        }
-
-                        targetId = dialog.IsCreateNew ? (int?)null : dialog.SelectedEntry.Id;
-                    }
-                }
-
                 HubitatPublishTracker.NotifyPublishStarted(filePath);
                 HubitatPublishResult result;
                 try
                 {
-                    result = targetId.HasValue || !string.IsNullOrWhiteSpace(candidate.NamespaceName)
-                        ? await client.PublishToTargetAsync(candidate, source, targetId, ct)
-                        : await client.PublishAsync(candidate, source, ct);
+                    var workflowResult = await HubitatPublishWorkflow.PublishAsync(
+                        candidate,
+                        source,
+                        client,
+                        SelectPublishTargetAsync,
+                        ct);
+
+                    if (workflowResult.Cancelled)
+                    {
+                        await WriteToPaneAsync(pane, $"  ⊘ {fileName}: Cancelled by user\r\n");
+                        continue;
+                    }
+
+                    result = workflowResult.Result!;
                 }
                 catch (Exception ex)
                 {
@@ -155,6 +137,22 @@ namespace HubitatVS
             {
                 _ratingPrompt.RegisterSuccessfulUsage();
             }
+        }
+
+        private static async System.Threading.Tasks.Task<HubitatPublishTargetSelection> SelectPublishTargetAsync(
+            string displayName,
+            string namespaceName,
+            IReadOnlyList<HubitatCodeEntry> namespaceMatches)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var dialog = new HubitatCodePickerDialog(displayName, namespaceName, namespaceMatches);
+            if (dialog.ShowModal() != true)
+            {
+                return new HubitatPublishTargetSelection(cancelled: true, targetId: null);
+            }
+
+            var targetId = dialog.IsCreateNew ? (int?)null : dialog.SelectedEntry.Id;
+            return new HubitatPublishTargetSelection(cancelled: false, targetId: targetId);
         }
 
         private static async Task ActivatePaneAsync(IVsOutputWindowPane? pane)

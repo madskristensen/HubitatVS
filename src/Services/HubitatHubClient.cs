@@ -12,7 +12,17 @@ using System.Threading.Tasks;
 
 namespace HubitatVS
 {
-    internal sealed class HubitatHubClient : IDisposable
+    internal interface IHubitatHubClient : IDisposable
+    {
+        Task<bool> TestConnectionAsync(CancellationToken ct = default);
+        Task<HubitatPublishResult> PublishAsync(HubitatCodeCandidate candidate, string source, CancellationToken ct = default);
+        Task<HubitatPublishResult> PublishToTargetAsync(HubitatCodeCandidate candidate, string source, int? targetId, CancellationToken ct = default);
+        Task<IReadOnlyList<HubitatCodeEntry>> GetNamespaceMatchesAsync(HubitatCodeKind kind, string namespaceName, CancellationToken ct = default);
+        Task<string> DownloadCodeSourceAsync(HubitatCodeKind kind, int codeId, CancellationToken ct = default);
+        Task<HubitatHubInfoEntry> GetAdornmentInfoAsync(HubitatCodeKind kind, string name, string namespaceName, string localSource, CancellationToken ct = default);
+    }
+
+    internal sealed class HubitatHubClient : IHubitatHubClient
     {
         private readonly HubitatHubConfig _config;
         private readonly HttpClient _http;
@@ -42,6 +52,12 @@ namespace HubitatVS
                     BaseAddress = baseAddress
                 };
             });
+        }
+
+        internal HubitatHubClient(HubitatHubConfig config, HttpClient httpClient)
+        {
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
 
         private static Uri BuildBaseAddress(string? host)

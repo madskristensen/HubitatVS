@@ -76,5 +76,38 @@ namespace HubitatVS.Tests
             await HubitatConnectionTracker.EnsureConnectionsTestedAsync(Array.Empty<HubitatHubConfig>());
             Assert.IsNull(HubitatConnectionTracker.GetConnected("Any"));
         }
+
+        [TestMethod]
+        public async Task EnsureConnectionsTestedAsync_RemovesStaleStatuses()
+        {
+            HubitatConnectionTracker.SetConnected("OldHub", true);
+
+            await HubitatConnectionTracker.EnsureConnectionsTestedAsync(new[]
+            {
+                new HubitatHubConfig { Name = "NewHub", Host = string.Empty }
+            });
+
+            Assert.IsNull(HubitatConnectionTracker.GetConnected("OldHub"));
+            Assert.IsNotNull(HubitatConnectionTracker.GetConnected("NewHub"));
+        }
+
+        [TestMethod]
+        public void NotifyConfigChanged_RaisesGlobalHubStateEvent()
+        {
+            HubitatHubStateChangedEventArgs? observed = null;
+            EventHandler<HubitatHubStateChangedEventArgs> handler = (_, e) => observed = e;
+            HubitatConnectionTracker.HubStateChanged += handler;
+
+            try
+            {
+                HubitatConnectionTracker.NotifyConfigChanged();
+                Assert.IsNotNull(observed);
+                Assert.IsTrue(observed!.IsGlobal);
+            }
+            finally
+            {
+                HubitatConnectionTracker.HubStateChanged -= handler;
+            }
+        }
     }
 }
