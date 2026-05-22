@@ -37,7 +37,7 @@ namespace HubitatVS.OpenFolder
             var context = new FileContext(
                 new Guid(HubitatContextTypes.ProviderTypeGuidString),
                 HubitatContextTypes.ContextTypeGuid,
-                null,
+                filePath,
                 new[] { filePath },
                 string.Empty,
                 null);

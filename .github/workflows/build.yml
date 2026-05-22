@@ -2,7 +2,6 @@
 name: "Build"
 permissions:
   actions: write
-  checks: write
   contents: write
 
 on:
@@ -21,13 +20,13 @@ jobs:
     env:
       Configuration: Release
       DeployExtension: False
+      Solution: HubitatVS.slnx
+      TestProject: test\HubitatVS.Tests\HubitatVS.Tests.csproj
       VsixManifestPath: src\source.extension.vsixmanifest
       VsixManifestSourcePath: src\source.extension.cs
 
     steps:
-    - uses: actions/checkout@v5
-      with:
-        persist-credentials: false
+    - uses: actions/checkout@v6
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v3
@@ -47,50 +46,64 @@ jobs:
         manifest-file: ${{ env.VsixManifestPath }}
         vsix-token-source-file: ${{ env.VsixManifestSourcePath }}
 
+    - name: Restore NuGet packages
+      run: msbuild ${{ env.Solution }} /v:m -restore /t:Restore
+
     - name: Build
-      run: msbuild HubitatVS.slnx /v:m /restore /p:Configuration=${{ env.Configuration }} /p:DeployExtension=${{ env.DeployExtension }} /p:OutDir=${{ github.workspace }}\_built\
+      run: msbuild ${{ env.Solution }} /v:m /m /p:Configuration=${{ env.Configuration }} /p:DeployExtension=${{ env.DeployExtension }}
+
+    - name: Run tests
+      run: dotnet test ${{ env.TestProject }} --configuration ${{ env.Configuration }} --no-build --no-restore --verbosity normal --logger:"trx;LogFileName=test-results.trx"
+
+    - name: Report test results
+      uses: dorny/test-reporter@v3
+      if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      with:
+        name: Test Results
+        path: '**/test-results.trx'
+        reporter: dotnet-trx
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
-        name: vsix-package
-        path: ${{ github.workspace }}\_built\**\*.vsix
+        name: ${{ github.event.repository.name }}.vsix
+        path: src\bin\${{ env.Configuration }}\net48\*.vsix
 
   publish:
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     needs: build
     runs-on: windows-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Download Package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: vsix-package
-          path: .\_artifact
-
-      - name: Resolve VSIX path
-        id: find_vsix
-        shell: pwsh
-        run: |
-          $vsix = Get-ChildItem -Path .\_artifact -Filter *.vsix -Recurse | Select-Object -First 1
-          if (-not $vsix) {
-            Write-Error "No VSIX file found in downloaded artifact"
-          }
-          "vsix_path=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          name: ${{ github.event.repository.name }}.vsix
 
       - name: Upload to Open VSIX
         uses: madskristensen/publish-vsixgallery@v1
         with:
-          vsix-file: ${{ steps.find_vsix.outputs.vsix_path }}
+          vsix-file: '*.vsix'
 
       - name: Publish extension to Marketplace
         if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]') }}
         uses: madskristensen/publish-marketplace@v2
         with:
-          extension-file: '${{ steps.find_vsix.outputs.vsix_path }}'
+          extension-file: '*.vsix'
           publish-manifest-file: 'vs-publish.json'
           personal-access-code: ${{ secrets.VS_PUBLISHER_ACCESS_TOKEN }}
+
+      - name: Tag and release
+        if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]') }}
+        id: tag_release
+        uses: softprops/action-gh-release@v3
+        with:
+          body: release ${{ needs.build.outputs.version }}
+          generate_release_notes: true
+          tag_name: ${{ needs.build.outputs.version }}
+          files: |
+            **/*.vsix
