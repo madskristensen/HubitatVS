@@ -152,7 +152,7 @@ namespace HubitatVS
 
             if (candidate.Kind == HubitatCodeKind.Unknown)
             {
-                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app, driver, or library.");
             }
 
             if (string.IsNullOrWhiteSpace(candidate.DisplayName))
@@ -180,7 +180,7 @@ namespace HubitatVS
 
             if (candidate.Kind == HubitatCodeKind.Unknown)
             {
-                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+                return CreateFailure(HubitatCodeKind.Unknown, "Could not determine whether this Groovy file is a Hubitat app, driver, or library.");
             }
 
             if (string.IsNullOrWhiteSpace(candidate.DisplayName))
@@ -517,6 +517,7 @@ namespace HubitatVS
         {
             HubitatCodeKind.Driver => new HubitatCodeDescriptor(HubitatCodeKind.Driver, "driver", "Driver", "/hub2/userDeviceTypes", "/driver"),
             HubitatCodeKind.App => new HubitatCodeDescriptor(HubitatCodeKind.App, "app", "App", "/hub2/userAppTypes", "/app"),
+            HubitatCodeKind.Library => new HubitatCodeDescriptor(HubitatCodeKind.Library, "library", "Library", "/userLibraries", "/library"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         };
 
@@ -574,9 +575,13 @@ namespace HubitatVS
                 lastModified = lm;
 
             var usedByCount = match.UsedBy?.Count ?? 0;
-            var count = kind == HubitatCodeKind.Driver
-                ? (detail.InstalledDriverCount ?? usedByCount)
-                : (detail.InstalledAppCount ?? usedByCount);
+            int count;
+            if (kind == HubitatCodeKind.Driver)
+                count = detail.InstalledDriverCount ?? usedByCount;
+            else if (kind == HubitatCodeKind.App)
+                count = detail.InstalledAppCount ?? usedByCount;
+            else
+                count = usedByCount;
 
             return new HubitatHubInfoEntry
             {

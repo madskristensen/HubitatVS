@@ -4,6 +4,7 @@ namespace HubitatVS
     {
         Unknown,
         Driver,
-        App
+        App,
+        Library
     }
 }

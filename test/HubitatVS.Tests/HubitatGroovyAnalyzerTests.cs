@@ -104,9 +104,114 @@ preferences {
 
             Assert.AreEqual(HubitatCodeKind.Unknown, candidate.Kind);
             CollectionAssert.Contains(candidate.Warnings.ToList(), "No Hubitat definition() block found.");
-            CollectionAssert.Contains(candidate.Warnings.ToList(), "Could not determine whether this file is a Hubitat app or driver.");
+            CollectionAssert.Contains(candidate.Warnings.ToList(), "Could not determine whether this file is a Hubitat app, driver, or library.");
             CollectionAssert.Contains(candidate.Warnings.ToList(), "Missing namespace.");
             CollectionAssert.Contains(candidate.Warnings.ToList(), "Missing author.");
+        }
+
+        [TestMethod]
+        public void AnalyzeSource_ClassifiesLibrary_ForLibraryStyleGroovy()
+        {
+            const string librarySample = @"library(
+    name: ""UtilitiesAndLoggingLibrary"",
+    namespace: ""dwinks"",
+    author: ""Daniel Winks"",
+    description: ""Utilities and Logging Library"",
+    category: """",
+    documentationLink: """"
+)
+
+def logInfo(msg) { log.info msg }
+";
+
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(librarySample, @"C:\samples\utilities-library.groovy");
+
+            Assert.AreEqual(HubitatCodeKind.Library, candidate.Kind);
+            Assert.AreEqual("UtilitiesAndLoggingLibrary", candidate.DisplayName);
+            Assert.AreEqual("dwinks", candidate.NamespaceName);
+            Assert.AreEqual("Daniel Winks", candidate.Author);
+            Assert.IsTrue(candidate.Warnings.Count == 0, $"Unexpected warnings: {string.Join(", ", candidate.Warnings)}");
+            Assert.AreEqual("Library", candidate.KindDisplayName);
+            Assert.IsTrue(candidate.IsLibrary);
+        }
+
+        [TestMethod]
+        public void AnalyzeSource_DoesNotClassifyAsLibrary_WhenLibraryCallLacksNameAndNamespace()
+        {
+            // A driver that happens to invoke `library(something)` should not be misclassified.
+            const string driverWithLibraryCall = @"metadata {
+    definition(name: ""Test Driver"", namespace: ""mads"", author: ""Mads Kristensen"") {
+        capability ""Switch""
+    }
+}
+
+def installed() {
+    library(somethingElse)
+}
+";
+
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(driverWithLibraryCall, @"C:\samples\test-driver.groovy");
+
+            Assert.AreEqual(HubitatCodeKind.Driver, candidate.Kind);
+        }
+
+        // Mirrors the real-world SMAPILibrary.groovy header (single-quoted args, version inside library()).
+        [TestMethod]
+        public void AnalyzeSource_ClassifiesLibrary_ForSmapiLibraryRealHeader()
+        {
+            const string smapiHeader = @"import hubitat.device.HubResponse
+
+library(
+  name: 'SMAPILibrary',
+  namespace: 'dwinks',
+  author: 'Daniel Winks',
+  description: 'Sonos Music API Library',
+  version: '0.11.7',
+  importUrl: ''
+)
+
+@Field private final Map AlarmClock1 = [:]
+";
+
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(smapiHeader, @"C:\samples\smapi-library.groovy");
+
+            Assert.AreEqual(HubitatCodeKind.Library, candidate.Kind);
+            Assert.AreEqual("SMAPILibrary", candidate.DisplayName);
+            Assert.AreEqual("dwinks", candidate.NamespaceName);
+            Assert.AreEqual("Daniel Winks", candidate.Author);
+            Assert.AreEqual("0.11.7", candidate.Version);
+            Assert.IsTrue(candidate.Warnings.Count == 0, $"Unexpected warnings: {string.Join(", ", candidate.Warnings)}");
+        }
+
+        // Mirrors the real-world UtilitiesAndLoggingLibrary.groovy: a library with a preferences{} block
+        // afterward — must still be classified as Library, not App.
+        [TestMethod]
+        public void AnalyzeSource_ClassifiesLibrary_EvenWhenPreferencesBlockFollows()
+        {
+            const string libraryWithPreferences = @"library(
+  name: 'UtilitiesAndLoggingLibrary',
+  namespace: 'dwinks',
+  author: 'Daniel Winks',
+  description: 'Utilities and Logging Library',
+  version: '0.11.7',
+  importUrl: 'https://example.com/lib.groovy'
+
+)
+
+if (device != null) {
+  preferences {
+    input 'logEnable', 'bool', title: 'Enable Logging', required: false, defaultValue: true
+  }
+}
+";
+
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(libraryWithPreferences, @"C:\samples\UtilitiesAndLoggingLibrary.groovy");
+
+            Assert.AreEqual(HubitatCodeKind.Library, candidate.Kind);
+            Assert.AreEqual("UtilitiesAndLoggingLibrary", candidate.DisplayName);
+            Assert.AreEqual("dwinks", candidate.NamespaceName);
+            Assert.AreEqual("Daniel Winks", candidate.Author);
+            Assert.AreEqual("0.11.7", candidate.Version);
         }
 
         [TestMethod]

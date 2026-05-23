@@ -147,7 +147,7 @@ namespace HubitatVS.Tests
             var result = await client.PublishAsync(candidate, "source");
 
             Assert.IsFalse(result.Success);
-            StringAssert.Contains(result.Message, "Could not determine whether this Groovy file is a Hubitat app or driver.");
+            StringAssert.Contains(result.Message, "Could not determine whether this Groovy file is a Hubitat app, driver, or library.");
         }
 
         [TestMethod]

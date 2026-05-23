@@ -44,12 +44,15 @@ namespace HubitatVS
 
         public bool IsApp => Kind == HubitatCodeKind.App;
 
+        public bool IsLibrary => Kind == HubitatCodeKind.Library;
+
         public bool IsPublishReady => Kind != HubitatCodeKind.Unknown && !Warnings.Any();
 
         public string KindDisplayName => Kind switch
         {
             HubitatCodeKind.Driver => "Driver",
             HubitatCodeKind.App => "App",
+            HubitatCodeKind.Library => "Library",
             _ => "Unknown"
         };
 

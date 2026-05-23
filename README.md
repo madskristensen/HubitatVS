@@ -12,16 +12,17 @@ or get the [CI build][vsixgallery].
 
 ## Overview
 
-**Hubitat Publish Tools** is a Visual Studio extension that streamlines the development and publishing of Groovy-based drivers and apps for the Hubitat Elevation platform. Manage hub connections, classify Groovy source files, and publish drivers or apps directly from Visual Studio.
+**Hubitat Publish Tools** is a Visual Studio extension that streamlines the development and publishing of Groovy-based drivers, apps, and libraries for the Hubitat Elevation platform. Manage hub connections, classify Groovy source files, and publish drivers, apps, or libraries directly from Visual Studio.
 
 ![Hubitat tool window](art/tool-window.png)
 
 ## ✨ Features
 
 - **Hub Connection Management** — Configure and manage Hubitat hub connections from the Tools menu
-- **Groovy Source Classification** — Detect whether a `.groovy` file is a Hubitat driver or app from its source structure
-- **One-Click Publishing** — Publish drivers and apps directly to your Hubitat hub
+- **Groovy Source Classification** — Detect whether a `.groovy` file is a Hubitat driver, app, or library from its source structure
+- **One-Click Publishing** — Publish drivers, apps, and libraries directly to your Hubitat hub
 - **Compare with Hub** — Diff your local Groovy file against the version currently on the hub using Visual Studio's built-in diff viewer
+- **Replace with Hub Version** — Overwrite your local file with the hub's version as a single undo-able edit in the editor
 - **Connection Validation** — Verify hub connectivity before publishing
 - **Editor Adornment Status** — View connected hub publish state directly in the editor (in sync, differs, or not published)
 - **Publish on Save (Optional)** — Toggle automatic publishing from the editor adornment context menu

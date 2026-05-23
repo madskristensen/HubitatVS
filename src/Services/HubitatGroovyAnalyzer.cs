@@ -11,6 +11,7 @@ namespace HubitatVS
         private static readonly Regex DefinitionNameRegex = new(@"name\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DefinitionNamespaceRegex = new(@"namespace\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DefinitionAuthorRegex = new(@"author\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex DefinitionVersionRegex = new(@"version\s*:\s*['""](?<value>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex VersionRegex = new(@"(?im)^\s*(?:\/\/\s*version\s*[:=]|\*\s*@version\s*|version\s*[:=])\s*(?<value>.+?)\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DriverHintRegex = new(@"\b(capability|attribute|fingerprint|command)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex AppHintRegex = new(@"\b(page|section|mappings)\s*\(|\b(menu|installOnOpen|singleInstance|parent)\s*:", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -53,6 +54,28 @@ namespace HubitatVS
         {
             var text = source ?? string.Empty;
             var normalizedPath = filePath ?? string.Empty;
+
+            var libraryArgs = TryExtractLibraryArguments(text);
+            if (libraryArgs != null && LooksLikeLibraryDeclaration(libraryArgs))
+            {
+                var libDisplayName = ExtractValue(libraryArgs, DefinitionNameRegex)
+                    ?? Path.GetFileNameWithoutExtension(normalizedPath);
+                var libNamespace = ExtractValue(libraryArgs, DefinitionNamespaceRegex) ?? string.Empty;
+                var libAuthor = ExtractValue(libraryArgs, DefinitionAuthorRegex) ?? string.Empty;
+                var libVersion = ExtractValue(libraryArgs, DefinitionVersionRegex)
+                    ?? ExtractValue(text, VersionRegex)
+                    ?? string.Empty;
+
+                return new HubitatCodeCandidate(
+                    normalizedPath,
+                    libDisplayName,
+                    libNamespace,
+                    libAuthor,
+                    libVersion,
+                    HubitatCodeKind.Library,
+                    BuildWarnings(HubitatCodeKind.Library, normalizedPath, libDisplayName, libNamespace, libAuthor, hasDefinition: true));
+            }
+
             var definitionArgs = TryExtractMetadataDefinitionArguments(text);
             var hasMetadataDefinition = definitionArgs != null;
             if (!hasMetadataDefinition)
@@ -137,6 +160,27 @@ namespace HubitatVS
             }
 
             return null;
+        }
+
+        private static string? TryExtractLibraryArguments(string source)
+        {
+            var searchStart = 0;
+            while (TryFindIdentifier(source, "library", searchStart, source.Length, out var libraryIndex))
+            {
+                if (TryFindBlock(source, libraryIndex + "library".Length, '(', ')', out var argsStart, out var argsEnd))
+                {
+                    return source.Substring(argsStart, argsEnd - argsStart);
+                }
+
+                searchStart = libraryIndex + "library".Length;
+            }
+
+            return null;
+        }
+
+        private static bool LooksLikeLibraryDeclaration(string args)
+        {
+            return DefinitionNameRegex.IsMatch(args) && DefinitionNamespaceRegex.IsMatch(args);
         }
 
         private static string? TryExtractDefinitionArguments(string source, int startIndex, int endIndex)
@@ -297,7 +341,7 @@ namespace HubitatVS
 
             if (kind == HubitatCodeKind.Unknown)
             {
-                warnings.Add("Could not determine whether this file is a Hubitat app or driver.");
+                warnings.Add("Could not determine whether this file is a Hubitat app, driver, or library.");
             }
 
             if (string.IsNullOrWhiteSpace(displayName) || displayName == Path.GetFileNameWithoutExtension(filePath))

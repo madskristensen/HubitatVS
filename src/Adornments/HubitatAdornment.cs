@@ -523,9 +523,14 @@ namespace HubitatVS
 
             if (entry.InstalledCount > 0)
             {
-                var noun = entry.Kind == HubitatCodeKind.App
-                    ? (entry.InstalledCount == 1 ? "instance" : "instances")
-                    : (entry.InstalledCount == 1 ? "device" : "devices");
+                string noun;
+                if (entry.Kind == HubitatCodeKind.App)
+                    noun = entry.InstalledCount == 1 ? "instance" : "instances";
+                else if (entry.Kind == HubitatCodeKind.Library)
+                    noun = entry.InstalledCount == 1 ? "consumer" : "consumers";
+                else
+                    noun = entry.InstalledCount == 1 ? "device" : "devices";
+
                 parts.Add($"{entry.InstalledCount} {noun}");
             }
 

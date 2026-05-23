@@ -38,6 +38,7 @@ namespace HubitatVS
         public const int HubitatAdornmentContextMenu = 0x0107;
         public const int HubitatAdornmentContextMenuGroup = 0x0108;
         public const int TogglePublishOnSaveCommand = 0x0109;
+        public const int ReplaceWithHubVersionCommand = 0x010A;
         public const int idmWSE_ContextMenu = 0x0002;
         public const int Logo = 0x0001;
     }
