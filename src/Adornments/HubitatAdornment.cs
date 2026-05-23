@@ -178,6 +178,12 @@ namespace HubitatVS
                     return;
                 }
 
+                // Publish changed the hub-side source, but our local source fingerprint
+                // is unchanged, so cached / in-flight entries would still report the
+                // pre-publish "differs" state. Invalidate them so the next refresh
+                // fetches fresh hub data and the text updates together with the icon.
+                InvalidateAdornmentInfoCache();
+
                 if (e.State == HubitatPublishState.Success)
                     TriggerRefresh(cancelRunning: true);
 
@@ -630,6 +636,20 @@ namespace HubitatVS
                 {
                     _adornmentInfoInFlight.Remove(key);
                 }
+            }
+        }
+
+        private void InvalidateAdornmentInfoCache()
+        {
+            lock (_cacheLock)
+            {
+                _adornmentInfoCache.Clear();
+
+                // Also drop the in-flight task references so the next refresh starts
+                // a fresh fetch instead of awaiting a task that's about to be cancelled
+                // (the cancellation would propagate to the new refresh too and silently
+                // skip the render, leaving the stale "differs" text on screen).
+                _adornmentInfoInFlight.Clear();
             }
         }
 
