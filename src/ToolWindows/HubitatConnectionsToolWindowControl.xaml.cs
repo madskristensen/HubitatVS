@@ -18,18 +18,25 @@ namespace HubitatVS
             DataContext = new HubitatConnectionsViewModel();
             Loaded += async (s, e) =>
             {
-                if (!_trackerSubscribed)
+                try
                 {
-                    HubitatConnectionTracker.HubStateChanged += OnTrackerChanged;
-                    _trackerSubscribed = true;
-                }
+                    if (!_trackerSubscribed)
+                    {
+                        HubitatConnectionTracker.HubStateChanged += OnTrackerChanged;
+                        _trackerSubscribed = true;
+                    }
 
-                await ScrubLegacyPasswordStorageAsync();
-                await ViewModel.ReloadHubsAsync();
-                if (!_testedThisSession)
+                    await ScrubLegacyPasswordStorageAsync();
+                    await ViewModel.ReloadHubsAsync();
+                    if (!_testedThisSession)
+                    {
+                        _testedThisSession = true;
+                        await ViewModel.TestAllConnectionsAsync();
+                    }
+                }
+                catch (Exception ex)
                 {
-                    _testedThisSession = true;
-                    await ViewModel.TestAllConnectionsAsync();
+                    await ex.LogAsync();
                 }
             };
             Unloaded += (s, e) =>
@@ -103,79 +110,101 @@ namespace HubitatVS
 
         private async void DeleteHub_Click(object sender, RoutedEventArgs e)
         {
-            var hubVm = HubsGrid.SelectedItem as HubitatHubViewModel;
-            if (hubVm == null)
+            try
             {
-                await VS.StatusBar.ShowMessageAsync("Select a hub first.");
-                return;
-            }
+                var hubVm = HubsGrid.SelectedItem as HubitatHubViewModel;
+                if (hubVm == null)
+                {
+                    await VS.StatusBar.ShowMessageAsync("Select a hub first.");
+                    return;
+                }
 
-            var hub = hubVm.Hub;
-            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-            var hubs = settings.GetHubs();
-            hubs.RemoveAll(h =>
-                string.Equals(h.Name, hub.Name, StringComparison.Ordinal) &&
-                string.Equals(h.Host, hub.Host, StringComparison.Ordinal));
-            settings.SetHubs(hubs);
-            await settings.SaveAsync();
-            HubitatHubSettings.InvalidateCache();
-            await ViewModel.ReloadHubsAsync();
-            HubitatConnectionTracker.RemoveHub(hub.Name);
-            ClearFormFields();
-            await VS.StatusBar.ShowMessageAsync($"Hub '{hub.Name}' deleted.");
+                var hub = hubVm.Hub;
+                var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+                var hubs = settings.GetHubs();
+                hubs.RemoveAll(h =>
+                    string.Equals(h.Name, hub.Name, StringComparison.Ordinal) &&
+                    string.Equals(h.Host, hub.Host, StringComparison.Ordinal));
+                settings.SetHubs(hubs);
+                await settings.SaveAsync();
+                HubitatHubSettings.InvalidateCache();
+                HubitatHubClient.InvalidateSession(hub);
+                await ViewModel.ReloadHubsAsync();
+                HubitatConnectionTracker.RemoveHub(hub.Name);
+                ClearFormFields();
+                await VS.StatusBar.ShowMessageAsync($"Hub '{hub.Name}' deleted.");
+            }
+            catch (Exception ex)
+            {
+                await ex.LogAsync();
+                await VS.StatusBar.ShowMessageAsync($"\u2717 Delete failed: {ex.Message}");
+            }
         }
 
         private async void SaveHub_Click(object sender, RoutedEventArgs e)
         {
-            var name = HubNameBox.Text.Trim();
-            var host = HubHostBox.Text.Trim();
-
-            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(host))
+            try
             {
-                await VS.StatusBar.ShowMessageAsync("Name and Host are required.");
-                return;
-            }
+                var name = HubNameBox.Text.Trim();
+                var host = HubHostBox.Text.Trim();
 
-            var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-            var hubs = settings.GetHubs();
-            var existing = hubs.FirstOrDefault(h =>
-                string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase));
-
-            if (existing != null)
-            {
-                existing.Host = host;
-                existing.Username = HubUsernameBox.Text.Trim();
-                existing.Password = _pendingHubPassword;
-            }
-            else
-            {
-                hubs.Add(new HubitatHubConfig
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(host))
                 {
-                    Name = name,
-                    Host = host,
-                    Username = HubUsernameBox.Text.Trim(),
-                    Password = _pendingHubPassword
-                });
-            }
+                    await VS.StatusBar.ShowMessageAsync("Name and Host are required.");
+                    return;
+                }
 
-            settings.SetHubs(hubs);
-            await settings.SaveAsync();
-            HubitatHubSettings.InvalidateCache();
-            await ViewModel.ReloadHubsAsync();
+                var settings = await HubitatHubSettings.GetLiveInstanceAsync();
+                var hubs = settings.GetHubs();
+                var existing = hubs.FirstOrDefault(h =>
+                    string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase));
 
-            var savedHubVm = ViewModel.Hubs.FirstOrDefault(h =>
-                string.Equals(h.Hub.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (savedHubVm != null)
-            {
-                await VS.StatusBar.ShowMessageAsync($"Testing connection to {savedHubVm.Hub.Name}...");
-                bool ok = await ViewModel.TestConnectionAsync(savedHubVm);
-                await VS.StatusBar.ShowMessageAsync(ok
-                    ? $"Connected to {savedHubVm.Hub.Name} ({savedHubVm.Hub.Host})"
-                    : $"Could not connect to {savedHubVm.Hub.Host}");
+                if (existing != null)
+                {
+                    existing.Host = host;
+                    existing.Username = HubUsernameBox.Text.Trim();
+                    existing.Password = _pendingHubPassword;
+                }
+                else
+                {
+                    hubs.Add(new HubitatHubConfig
+                    {
+                        Name = name,
+                        Host = host,
+                        Username = HubUsernameBox.Text.Trim(),
+                        Password = _pendingHubPassword
+                    });
+                }
+
+                settings.SetHubs(hubs);
+                await settings.SaveAsync();
+                HubitatHubSettings.InvalidateCache();
+                // Credentials may have changed; drop any cached login cookie so the
+                // next request re-authenticates.
+                var savedConfig = hubs.FirstOrDefault(h =>
+                    string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (savedConfig != null) HubitatHubClient.InvalidateSession(savedConfig);
+                await ViewModel.ReloadHubsAsync();
+
+                var savedHubVm = ViewModel.Hubs.FirstOrDefault(h =>
+                    string.Equals(h.Hub.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (savedHubVm != null)
+                {
+                    await VS.StatusBar.ShowMessageAsync($"Testing connection to {savedHubVm.Hub.Name}...");
+                    bool ok = await ViewModel.TestConnectionAsync(savedHubVm);
+                    await VS.StatusBar.ShowMessageAsync(ok
+                        ? $"Connected to {savedHubVm.Hub.Name} ({savedHubVm.Hub.Host})"
+                        : $"Could not connect to {savedHubVm.Hub.Host}");
+                }
+                else
+                {
+                    await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                await VS.StatusBar.ShowMessageAsync($"Hub '{name}' saved.");
+                await ex.LogAsync();
+                await VS.StatusBar.ShowMessageAsync($"\u2717 Save failed: {ex.Message}");
             }
         }
 

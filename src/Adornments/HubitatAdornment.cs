@@ -25,7 +25,7 @@ namespace HubitatVS
         private CrispImage _logoIcon;
         private ScaleTransform _iconScale;
         private RotateTransform _iconRotate;
-        private CancellationTokenSource _iconAnimationCts;
+        private CancellationTokenSource _iconAnimationCts = new CancellationTokenSource();
 
         private readonly HubitatRefreshCoordinator _refreshCoordinator;
         private readonly Dictionary<string, CachedAdornmentInfo> _adornmentInfoCache =
@@ -59,8 +59,28 @@ namespace HubitatVS
                 Moniker = RuntimeMonikers.HubitatLogoMoniker,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
+                // If package init hasn't registered the real Hubitat moniker yet,
+                // HubitatLogoMoniker is still the StatusInformation placeholder.
+                // Hide the icon (preserving layout) so the placeholder never
+                // flashes; OnHubitatLogoMonikerUpdated will reveal it once ready.
+                Visibility = RuntimeMonikers.IsCustomHubitatLogoAvailable
+                    ? Visibility.Visible
+                    : Visibility.Hidden,
             };
-            SetIconToolTipIfNeeded(RuntimeMonikers.HubitatLogoMoniker, null);
+            // CrispImage renders at its layout size, but WPF's default bitmap
+            // scaling samples poorly when the transform is rotated to an arbitrary
+            // angle, producing a fuzzy spinner. HighQuality scaling + a BitmapCache
+            // (pre-rasterized layer rotated as a unit) keep the rotating icon crisp.
+            // NOTE: do NOT enable UseLayoutRounding or SnapsToDevicePixels — both
+            // snap the rotated bitmap to pixel boundaries each frame, producing a
+            // jagged wobble during the spinner animation.
+            RenderOptions.SetBitmapScalingMode(_logoIcon, BitmapScalingMode.HighQuality);
+            _logoIcon.CacheMode = new BitmapCache();
+            // Keep tooltip null on construction so OnHubitatLogoMonikerUpdated can
+            // replace the placeholder StatusInformation moniker if package init
+            // hasn't completed yet. (The update guard skips when a tooltip is
+            // present, since that means we're showing a transient publish icon.)
+            ToolTipService.SetToolTip(_logoIcon, null);
             _iconScale = new ScaleTransform(1, 1);
             _iconRotate = new RotateTransform(0);
             var iconTransform = new TransformGroup();
@@ -138,7 +158,14 @@ namespace HubitatVS
             HubitatConnectionTracker.HubsChanged -= OnHubsChanged;
             HubitatPublishTracker.PublishStateChanged -= OnPublishStateChanged;
             RuntimeMonikers.HubitatLogoMonikerUpdated -= OnHubitatLogoMonikerUpdated;
-            _iconAnimationCts?.Cancel();
+
+            var oldCts = Interlocked.Exchange(ref _iconAnimationCts, null);
+            if (oldCts != null)
+            {
+                oldCts.Cancel();
+                oldCts.Dispose();
+            }
+
             _refreshCoordinator.Dispose();
         }
 
@@ -154,9 +181,14 @@ namespace HubitatVS
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 if (_textView.IsClosed) return;
 
-                _iconAnimationCts?.Cancel();
-                _iconAnimationCts = new CancellationTokenSource();
-                var cts = _iconAnimationCts;
+                var newCts = new CancellationTokenSource();
+                var oldCts = Interlocked.Exchange(ref _iconAnimationCts, newCts);
+                if (oldCts != null)
+                {
+                    oldCts.Cancel();
+                    oldCts.Dispose();
+                }
+                var cts = newCts;
 
                 var isPublishing = e.State == HubitatPublishState.Publishing;
                 var newMoniker = isPublishing
@@ -170,6 +202,17 @@ namespace HubitatVS
                         ? "Published to Hubitat successfully"
                         : "Publish to Hubitat failed";
 
+                // For terminal states (Success / Failed), kick off the hub-state refresh
+                // BEFORE the icon swap animation so the GET runs in parallel with the
+                // ~470ms fade rather than after it. Cache invalidation must happen first
+                // so the refresh fetches fresh data instead of the pre-publish "differs".
+                if (!isPublishing)
+                {
+                    InvalidateAdornmentInfoCache();
+                    if (e.State == HubitatPublishState.Success)
+                        TriggerRefresh(cancelRunning: true);
+                }
+
                 await SwapLogoIconAsync(newMoniker, iconTooltip, cts.Token);
 
                 if (isPublishing)
@@ -177,15 +220,6 @@ namespace HubitatVS
                     StartIconSpinner();
                     return;
                 }
-
-                // Publish changed the hub-side source, but our local source fingerprint
-                // is unchanged, so cached / in-flight entries would still report the
-                // pre-publish "differs" state. Invalidate them so the next refresh
-                // fetches fresh hub data and the text updates together with the icon.
-                InvalidateAdornmentInfoCache();
-
-                if (e.State == HubitatPublishState.Success)
-                    TriggerRefresh(cancelRunning: true);
 
                 try { await Task.Delay(2000, cts.Token); }
                 catch (OperationCanceledException) { return; }
@@ -210,6 +244,7 @@ namespace HubitatVS
 
             // Clear any ongoing animation before starting a fresh one
             ResetIconState();
+            _logoIcon.Visibility = Visibility.Visible;
 
             // Phase 1: fade out + shrink to centre (150 ms)
             var fadeOut = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(150)))
@@ -304,6 +339,7 @@ namespace HubitatVS
                     return;
 
                 _logoIcon.Moniker = logoMoniker;
+                _logoIcon.Visibility = Visibility.Visible;
                 SetIconToolTipIfNeeded(logoMoniker, null);
             });
         }
@@ -326,30 +362,39 @@ namespace HubitatVS
             if ((e.FileActionType & FileActionTypes.ContentSavedToDisk) == 0)
                 return;
 
-            TriggerRefresh();
-            _ = ThreadHelper.JoinableTaskFactory.RunAsync(PublishOnSaveIfEnabledAsync);
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(HandleSaveAsync);
         }
 
-        private async Task PublishOnSaveIfEnabledAsync()
+        private async Task HandleSaveAsync()
         {
-            if (Interlocked.Exchange(ref _publishOnSaveInProgress, 1) == 1)
-                return;
-
             try
             {
                 var settings = await HubitatHubSettings.GetLiveInstanceAsync();
-                if (!settings.PublishOnSaveEnabled)
-                    return;
+                if (settings.PublishOnSaveEnabled)
+                {
+                    // The publish flow will trigger a refresh once it completes;
+                    // doing one here would only fetch the guaranteed-stale
+                    // "differs" state and flicker the UI before the publish swap.
+                    if (Interlocked.Exchange(ref _publishOnSaveInProgress, 1) == 1)
+                        return;
 
-                await HubitatPublishService.PublishFileIfNotInProgressAsync(_filePath);
+                    try
+                    {
+                        await HubitatPublishService.PublishFileIfNotInProgressAsync(_filePath);
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _publishOnSaveInProgress, 0);
+                    }
+                }
+                else
+                {
+                    TriggerRefresh();
+                }
             }
             catch (Exception ex)
             {
                 await ex.LogAsync();
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _publishOnSaveInProgress, 0);
             }
         }
 

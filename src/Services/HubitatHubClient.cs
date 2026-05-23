@@ -26,18 +26,27 @@ namespace HubitatVS
     {
         private readonly HubitatHubConfig _config;
         private readonly HttpClient _http;
-        private string _sessionCookie = string.Empty;
-        private bool _prepared;
+        private readonly string _sessionKey;
 
         private static readonly ConcurrentDictionary<string, HttpClient> ClientPool =
             new ConcurrentDictionary<string, HttpClient>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, SessionState> SessionPool =
+            new ConcurrentDictionary<string, SessionState>(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan ConnectionProbeTimeout = TimeSpan.FromSeconds(3);
+
+        private sealed class SessionState
+        {
+            public string Cookie = string.Empty;
+            public bool Prepared;
+            public readonly SemaphoreSlim Lock = new SemaphoreSlim(1, 1);
+        }
 
         public HubitatHubClient(HubitatHubConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             var baseAddress = BuildBaseAddress(config.Host);
             var poolKey = baseAddress.GetLeftPart(UriPartial.Authority);
+            _sessionKey = poolKey + "|" + (config.Username ?? string.Empty);
 
             _http = ClientPool.GetOrAdd(poolKey, _ =>
             {
@@ -58,6 +67,32 @@ namespace HubitatVS
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            var baseAddress = httpClient.BaseAddress;
+            var poolKey = baseAddress != null ? baseAddress.GetLeftPart(UriPartial.Authority) : config.Host ?? string.Empty;
+            _sessionKey = poolKey + "|" + (config.Username ?? string.Empty);
+        }
+
+        private SessionState GetSession() =>
+            SessionPool.GetOrAdd(_sessionKey, _ => new SessionState());
+
+        /// <summary>
+        /// Invalidates the pooled session cookie for the given hub, forcing the next
+        /// request to re-authenticate. Call this after credentials change or removal.
+        /// </summary>
+        internal static void InvalidateSession(HubitatHubConfig config)
+        {
+            if (config == null) return;
+            try
+            {
+                var baseAddress = BuildBaseAddress(config.Host);
+                var poolKey = baseAddress.GetLeftPart(UriPartial.Authority);
+                var key = poolKey + "|" + (config.Username ?? string.Empty);
+                SessionPool.TryRemove(key, out _);
+            }
+            catch
+            {
+                // Best-effort: bad host shouldn't crash invalidation.
+            }
         }
 
         private static Uri BuildBaseAddress(string? host)
@@ -125,21 +160,37 @@ namespace HubitatVS
 
             var response = await _http.PostAsync("/login", content, ct);
 
+            var session = GetSession();
             if (response.Headers.TryGetValues("set-cookie", out var cookieValues))
             {
                 var first = cookieValues.FirstOrDefault();
-                _sessionCookie = first != null ? first.Split(';')[0] : string.Empty;
+                session.Cookie = first != null ? first.Split(';')[0] : string.Empty;
             }
 
-            return _sessionCookie;
+            return session.Cookie;
         }
 
         private async Task EnsureAuthenticatedAsync(CancellationToken ct)
         {
-            if (_prepared) return;
-            _prepared = true;
-            if (!string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
+            var session = GetSession();
+            if (session.Prepared) return;
+            if (string.IsNullOrEmpty(_config.Username) || string.IsNullOrEmpty(_config.Password))
+            {
+                session.Prepared = true;
+                return;
+            }
+
+            await session.Lock.WaitAsync(ct);
+            try
+            {
+                if (session.Prepared) return;
                 await LoginAsync(ct);
+                session.Prepared = true;
+            }
+            finally
+            {
+                session.Lock.Release();
+            }
         }
 
         public async Task<HubitatPublishResult> PublishAsync(
@@ -470,9 +521,10 @@ namespace HubitatVS
         private HttpRequestMessage CreateRequest(HttpMethod method, string requestUri)
         {
             var request = new HttpRequestMessage(method, requestUri);
-            if (!string.IsNullOrEmpty(_sessionCookie))
+            var cookie = GetSession().Cookie;
+            if (!string.IsNullOrEmpty(cookie))
             {
-                request.Headers.TryAddWithoutValidation("Cookie", _sessionCookie);
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
 
             return request;
@@ -597,6 +649,13 @@ namespace HubitatVS
             };
         }
 
+        /// <summary>
+        /// Intentionally a no-op. The underlying <see cref="HttpClient"/> is pooled
+        /// per host (<see cref="ClientPool"/>) and reused across instances; disposing
+        /// it here would tear down sockets used by other live clients. Session state
+        /// is similarly pooled in <see cref="SessionPool"/>. Required to satisfy
+        /// <see cref="IHubitatHubClient"/> (which is <see cref="IDisposable"/>).
+        /// </summary>
         public void Dispose() { }
 
         private static HubitatCodeListEntry FindExactMatch(
