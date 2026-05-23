@@ -18,6 +18,9 @@ namespace HubitatVS
         private static readonly object _lock = new object();
         private static Task _testTask = Task.CompletedTask;
 
+        private const int MaxConcurrentTests = 5;
+        private static readonly SemaphoreSlim _testGate = new SemaphoreSlim(MaxConcurrentTests, MaxConcurrentTests);
+
         /// <summary>Fired when any hub's connection state or the hub list itself changes.</summary>
         public static event EventHandler HubsChanged;
 
@@ -184,7 +187,18 @@ namespace HubitatVS
 
         private static async Task TestConnectionsCoreAsync(IEnumerable<HubitatHubConfig> hubs)
         {
-            await Task.WhenAll(hubs.Select(h => TestConnectionAsync(h, CancellationToken.None)));
+            await Task.WhenAll(hubs.Select(async h =>
+            {
+                await _testGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    await TestConnectionAsync(h, CancellationToken.None).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _testGate.Release();
+                }
+            }));
         }
 
         private static void SetTesting(string hubName, bool testing)

@@ -129,6 +129,7 @@ namespace HubitatVS
                 await settings.SaveAsync();
                 HubitatHubSettings.InvalidateCache();
                 HubitatHubClient.InvalidateSession(hub);
+                HubitatHubClient.PruneTo(hubs);
                 await ViewModel.ReloadHubsAsync();
                 HubitatConnectionTracker.RemoveHub(hub.Name);
                 ClearFormFields();
@@ -184,6 +185,7 @@ namespace HubitatVS
                 var savedConfig = hubs.FirstOrDefault(h =>
                     string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase));
                 if (savedConfig != null) HubitatHubClient.InvalidateSession(savedConfig);
+                HubitatHubClient.PruneTo(hubs);
                 await ViewModel.ReloadHubsAsync();
 
                 var savedHubVm = ViewModel.Hubs.FirstOrDefault(h =>

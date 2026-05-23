@@ -33,6 +33,14 @@ namespace HubitatVS
         private static readonly ConcurrentDictionary<string, SessionState> SessionPool =
             new ConcurrentDictionary<string, SessionState>(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan ConnectionProbeTimeout = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan DefaultHttpTimeout = TimeSpan.FromSeconds(30);
+
+        private static readonly Regex WhitespaceRegex =
+            new Regex(@"\s+", RegexOptions.Compiled);
+        private static readonly ConcurrentDictionary<string, Regex> CreatedIdLocationRegexes =
+            new ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
+        private static readonly ConcurrentDictionary<string, Regex> CreatedIdVariableRegexes =
+            new ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
 
         private sealed class SessionState
         {
@@ -58,7 +66,8 @@ namespace HubitatVS
 
                 return new HttpClient(handler)
                 {
-                    BaseAddress = baseAddress
+                    BaseAddress = baseAddress,
+                    Timeout = DefaultHttpTimeout
                 };
             });
         }
@@ -92,6 +101,53 @@ namespace HubitatVS
             catch
             {
                 // Best-effort: bad host shouldn't crash invalidation.
+            }
+        }
+
+        /// <summary>
+        /// Evicts pooled HttpClient and session entries that don't correspond to any
+        /// hub in <paramref name="configuredHubs"/>. Call after hub list changes to
+        /// keep static pools bounded.
+        /// </summary>
+        internal static void PruneTo(IEnumerable<HubitatHubConfig> configuredHubs)
+        {
+            var liveAuthorities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var liveSessionKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (configuredHubs != null)
+            {
+                foreach (var hub in configuredHubs)
+                {
+                    if (hub == null || string.IsNullOrWhiteSpace(hub.Host)) continue;
+                    try
+                    {
+                        var authority = BuildBaseAddress(hub.Host).GetLeftPart(UriPartial.Authority);
+                        liveAuthorities.Add(authority);
+                        liveSessionKeys.Add(authority + "|" + (hub.Username ?? string.Empty));
+                    }
+                    catch
+                    {
+                        // Skip invalid hub entries.
+                    }
+                }
+            }
+
+            foreach (var key in ClientPool.Keys.ToArray())
+            {
+                if (liveAuthorities.Contains(key)) continue;
+                if (ClientPool.TryRemove(key, out var client))
+                {
+                    try { client.Dispose(); } catch { }
+                }
+            }
+
+            foreach (var key in SessionPool.Keys.ToArray())
+            {
+                if (liveSessionKeys.Contains(key)) continue;
+                if (SessionPool.TryRemove(key, out var session))
+                {
+                    try { session.Lock.Dispose(); } catch { }
+                }
             }
         }
 
@@ -534,7 +590,12 @@ namespace HubitatVS
         {
             if (!string.IsNullOrWhiteSpace(location))
             {
-                var locationMatch = Regex.Match(location, $@"{Regex.Escape(descriptor.EditorBasePath)}/editor/(?<id>\d+)", RegexOptions.IgnoreCase);
+                var locationRegex = CreatedIdLocationRegexes.GetOrAdd(
+                    descriptor.EditorBasePath,
+                    basePath => new Regex(
+                        $@"{Regex.Escape(basePath)}/editor/(?<id>\d+)",
+                        RegexOptions.IgnoreCase | RegexOptions.Compiled));
+                var locationMatch = locationRegex.Match(location);
                 if (locationMatch.Success && int.TryParse(locationMatch.Groups["id"].Value, out int locationId))
                 {
                     return locationId;
@@ -546,10 +607,12 @@ namespace HubitatVS
                 return null;
             }
 
-            var variableMatch = Regex.Match(
-                responseBody,
-                $@"global{descriptor.NounCapitalized}IdToEdit\s*=\s*(?<id>\d+)",
-                RegexOptions.IgnoreCase);
+            var variableRegex = CreatedIdVariableRegexes.GetOrAdd(
+                descriptor.NounCapitalized,
+                noun => new Regex(
+                    $@"global{noun}IdToEdit\s*=\s*(?<id>\d+)",
+                    RegexOptions.IgnoreCase | RegexOptions.Compiled));
+            var variableMatch = variableRegex.Match(responseBody);
             if (variableMatch.Success && int.TryParse(variableMatch.Groups["id"].Value, out int variableId))
             {
                 return variableId;
@@ -719,7 +782,7 @@ namespace HubitatVS
         private static string NormalizeComparableText(string? value)
         {
             var decoded = WebUtility.HtmlDecode(value ?? string.Empty).Trim();
-            return Regex.Replace(decoded, @"\s+", " ");
+            return WhitespaceRegex.Replace(decoded, " ");
         }
 
         private static string CanonicalizeName(string? value)
