@@ -178,6 +178,9 @@ namespace HubitatVS
                     return;
                 }
 
+                if (e.State == HubitatPublishState.Success)
+                    TriggerRefresh(cancelRunning: true);
+
                 try { await Task.Delay(2000, cts.Token); }
                 catch (OperationCanceledException) { return; }
 

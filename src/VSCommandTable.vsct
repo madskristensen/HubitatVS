@@ -30,9 +30,6 @@
       <Group guid="HubitatVS" id="HubitatWorkspaceContextMenuGroup" priority="0x0100">
         <Parent guid="guidWorkspaceExplorerToolWindowPackageCmdSet" id="idmWSE_ContextMenu"/>
       </Group>
-      <Group guid="HubitatVS" id="HubitatContextMenuFlyoutGroup" priority="0x0100">
-        <Parent guid="HubitatVS" id="HubitatContextMenuFlyout"/>
-      </Group>
       <Group guid="HubitatVS" id="HubitatAdornmentContextMenuGroup" priority="0x0100">
         <Parent guid="HubitatVS" id="HubitatAdornmentContextMenu"/>
       </Group>
@@ -56,7 +53,7 @@
       </Button>
 
       <Button guid="HubitatVS" id="PublishToHubitatCommand" priority="0x0100" type="Button">
-        <Parent guid="HubitatVS" id="HubitatContextMenuFlyoutGroup"/>
+        <Parent guid="HubitatVS" id="HubitatAdornmentContextMenuGroup"/>
         <Icon guid="Icons" id="Logo" />
         <CommandFlag>DynamicVisibility</CommandFlag>
         <Strings>
@@ -65,8 +62,8 @@
         </Strings>
       </Button>
 
-      <Button guid="HubitatVS" id="CompareWithHubCommand" priority="0x0200" type="Button">
-        <Parent guid="HubitatVS" id="HubitatContextMenuFlyoutGroup"/>
+      <Button guid="HubitatVS" id="CompareWithHubCommand" priority="0x0100" type="Button">
+        <Parent guid="HubitatVS" id="HubitatAdornmentCompareGroup"/>
         <Icon guid="ImageCatalogGuid" id="CompareFiles"/>
         <CommandFlag>DynamicVisibility</CommandFlag>
         <CommandFlag>IconIsMoniker</CommandFlag>
@@ -76,8 +73,8 @@
         </Strings>
       </Button>
 
-      <Button guid="HubitatVS" id="ReplaceWithHubVersionCommand" priority="0x0250" type="Button">
-        <Parent guid="HubitatVS" id="HubitatContextMenuFlyoutGroup"/>
+      <Button guid="HubitatVS" id="ReplaceWithHubVersionCommand" priority="0x0200" type="Button">
+        <Parent guid="HubitatVS" id="HubitatAdornmentCompareGroup"/>
         <Icon guid="ImageCatalogGuid" id="Download"/>
         <CommandFlag>DynamicVisibility</CommandFlag>
         <CommandFlag>IconIsMoniker</CommandFlag>
@@ -102,16 +99,18 @@
     <CommandPlacement guid="HubitatVS" id="HubitatContextMenuFlyout" priority="0x0100">
       <Parent guid="VSMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
     </CommandPlacement>
-    <CommandPlacement guid="HubitatVS" id="PublishToHubitatCommand" priority="0x0100">
-      <Parent guid="HubitatVS" id="HubitatAdornmentContextMenuGroup"/>
+    <CommandPlacement guid="HubitatVS" id="HubitatAdornmentContextMenuGroup" priority="0x0100">
+      <Parent guid="HubitatVS" id="HubitatContextMenuFlyout"/>
     </CommandPlacement>
-    <CommandPlacement guid="HubitatVS" id="CompareWithHubCommand" priority="0x0100">
-      <Parent guid="HubitatVS" id="HubitatAdornmentCompareGroup"/>
-    </CommandPlacement>
-    <CommandPlacement guid="HubitatVS" id="ReplaceWithHubVersionCommand" priority="0x0200">
-      <Parent guid="HubitatVS" id="HubitatAdornmentCompareGroup"/>
+    <CommandPlacement guid="HubitatVS" id="HubitatAdornmentCompareGroup" priority="0x0200">
+      <Parent guid="HubitatVS" id="HubitatContextMenuFlyout"/>
     </CommandPlacement>
   </CommandPlacements>
+
+  <VisibilityConstraints>
+    <VisibilityItem guid="HubitatVS" id="HubitatContextMenuFlyout" context="SelectedGroovyFileContext"/>
+    <VisibilityItem guid="HubitatVS" id="TogglePublishOnSaveCommand" context="GroovyEditorOpenContext"/>
+  </VisibilityConstraints>
 
   <KeyBindings>
     <KeyBinding guid="HubitatVS" id="PublishToHubitatCommand" editor="guidVSStd97" key1="9" mod1="Control Shift" />
@@ -124,7 +123,6 @@
       <IDSymbol name="ShowHubitatConnectionsToolWindowCommand" value="0x0102" />
       <IDSymbol name="PublishToHubitatCommand" value="0x0103" />
       <IDSymbol name="HubitatContextMenuFlyout" value="0x0104" />
-      <IDSymbol name="HubitatContextMenuFlyoutGroup" value="0x0105" />
       <IDSymbol name="CompareWithHubCommand" value="0x0106" />
       <IDSymbol name="HubitatAdornmentContextMenu" value="0x0107" />
       <IDSymbol name="HubitatAdornmentContextMenuGroup" value="0x0108" />
@@ -140,5 +138,8 @@
     <GuidSymbol name="Icons" value="{3b6d4b18-2382-4761-b792-00ea3526509b}">
       <IDSymbol name="Logo" value="1"/>
     </GuidSymbol>
+
+    <GuidSymbol name="SelectedGroovyFileContext" value="{B2C2B6E1-9B7E-4C8E-9F1A-1C7A8B5D4E3F}" />
+    <GuidSymbol name="GroovyEditorOpenContext" value="{0E95C18F-1C5F-45B7-A943-E8D55F92FD10}" />
   </Symbols>
 </CommandTable>

@@ -15,12 +15,18 @@ namespace HubitatVS
         PackageGuids.GroovyEditorOpenContextString,
         name: "Hubitat .groovy editor open",
         expression: "GroovyContentType | TextMateGroovyContentType",
-        termNames: new[] { "GroovyContentType", "TextMateGroovyContentType" },
-        termValues: new[]
-        {
+        termNames: ["GroovyContentType", "TextMateGroovyContentType"],
+        termValues:
+        [
             "ActiveEditorContentType:groovy",
             "ActiveEditorContentType:code++.groovy"
-        })]
+        ])]
+    [ProvideUIContextRule(
+        PackageGuids.SelectedGroovyFileContextString,
+        name: "Hubitat .groovy file selected",
+        expression: "GroovyFileSelected",
+        termNames: ["GroovyFileSelected"],
+        termValues: ["HierSingleSelectionName:\\.groovy$"])]
     [ProvideAutoLoad(PackageGuids.GroovyEditorOpenContextString, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideProfile(typeof(HubitatHubSettingsDialogPage), "Hubitat", "Hub Connections", 0, 0, true)]
     [Guid(PackageGuids.HubitatVSString)]
