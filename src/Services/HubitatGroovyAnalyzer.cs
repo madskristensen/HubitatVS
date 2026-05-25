@@ -251,6 +251,8 @@ namespace HubitatVS
             var depth = 1;
             var inSingleQuote = false;
             var inDoubleQuote = false;
+            var inTripleSingleQuote = false;
+            var inTripleDoubleQuote = false;
             var escaped = false;
             var start = index + 1;
 
@@ -264,6 +266,36 @@ namespace HubitatVS
                     continue;
                 }
 
+                if (inTripleSingleQuote)
+                {
+                    if (ch == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (ch == '\'' && i + 2 < source.Length && source[i + 1] == '\'' && source[i + 2] == '\'')
+                    {
+                        inTripleSingleQuote = false;
+                        i += 2;
+                    }
+
+                    continue;
+                }
+
+                if (inTripleDoubleQuote)
+                {
+                    if (ch == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (ch == '"' && i + 2 < source.Length && source[i + 1] == '"' && source[i + 2] == '"')
+                    {
+                        inTripleDoubleQuote = false;
+                        i += 2;
+                    }
+
+                    continue;
+                }
+
                 if (inSingleQuote)
                 {
                     if (ch == '\\')
@@ -272,6 +304,13 @@ namespace HubitatVS
                     }
                     else if (ch == '\'')
                     {
+                        inSingleQuote = false;
+                    }
+                    else if (ch == '\n' || ch == '\r')
+                    {
+                        // Unterminated single-quoted string (likely an apostrophe in a
+                        // place we didn't recognize as a comment) — bail out of string
+                        // mode at end of line so we don't swallow the rest of the file.
                         inSingleQuote = false;
                     }
 
@@ -288,7 +327,49 @@ namespace HubitatVS
                     {
                         inDoubleQuote = false;
                     }
+                    else if (ch == '\n' || ch == '\r')
+                    {
+                        inDoubleQuote = false;
+                    }
 
+                    continue;
+                }
+
+                // Skip // line comments
+                if (ch == '/' && i + 1 < source.Length && source[i + 1] == '/')
+                {
+                    i += 2;
+                    while (i < source.Length && source[i] != '\n' && source[i] != '\r')
+                    {
+                        i++;
+                    }
+                    // Loop's i++ will advance past the newline (or stay at end of source).
+                    continue;
+                }
+
+                // Skip /* ... */ block comments
+                if (ch == '/' && i + 1 < source.Length && source[i + 1] == '*')
+                {
+                    i += 2;
+                    while (i + 1 < source.Length && !(source[i] == '*' && source[i + 1] == '/'))
+                    {
+                        i++;
+                    }
+                    i++; // position on '/' so loop increment skips past it
+                    continue;
+                }
+
+                if (ch == '\'' && i + 2 < source.Length && source[i + 1] == '\'' && source[i + 2] == '\'')
+                {
+                    inTripleSingleQuote = true;
+                    i += 2;
+                    continue;
+                }
+
+                if (ch == '"' && i + 2 < source.Length && source[i + 1] == '"' && source[i + 2] == '"')
+                {
+                    inTripleDoubleQuote = true;
+                    i += 2;
                     continue;
                 }
 

@@ -78,6 +78,38 @@ preferences {
         }
 
         [TestMethod]
+        public void AnalyzeSource_ClassifiesDriver_WhenMetadataContainsCommentsWithApostrophes()
+        {
+            // Repro for misclassification of open-meteo-weather-driver.groovy: a line comment
+            // inside metadata { } contains an apostrophe ("today's"), which the brace matcher
+            // used to mistake for a Groovy single-quoted string and then swallow the closing
+            // brace of metadata { }, falling back to a kind of App.
+            const string commentedDriver = @"metadata {
+    definition (
+        name: ""Apostrophe Driver"",
+        namespace: ""mads"",
+        author: ""Mads Kristensen""
+    )
+    {
+        capability ""Sensor""
+        attribute ""hourlyForecast"", ""string""        // JSON array, today's remaining hours
+        command ""refresh""
+    }
+
+    preferences {
+        input ""scale"", ""enum"", title: ""Scale"", options: [""auto"" : ""Auto (from hub: ${location?.temperatureScale ?: 'F'})""]
+    }
+}
+";
+
+            var candidate = HubitatGroovyAnalyzer.AnalyzeSource(commentedDriver, @"C:\samples\apostrophe-driver.groovy");
+
+            Assert.AreEqual(HubitatCodeKind.Driver, candidate.Kind);
+            Assert.AreEqual("Apostrophe Driver", candidate.DisplayName);
+            Assert.AreEqual("mads", candidate.NamespaceName);
+        }
+
+        [TestMethod]
         public void AnalyzeSource_ClassifiesDriver_WhenMetadataHasCapabilitiesButNoDefinition()
         {
             const string definitionlessDriver = @"metadata {
