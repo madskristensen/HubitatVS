@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -82,6 +83,28 @@ namespace HubitatVS.Tests
             Assert.AreEqual(10, result.CodeId);
             Assert.AreEqual(8, result.PublishedVersion);
             Assert.AreEqual(HubitatCodeKind.App, result.CodeKind);
+        }
+
+        [TestMethod]
+        public async Task PublishToTargetAsync_ForLargeDriverSource_UsesUrlEncodedRequestWithoutUriLengthFailure()
+        {
+            var handler = new QueueMessageHandler();
+            handler.EnqueueJson("{\"id\":10,\"name\":\"Test Driver\",\"version\":7,\"source\":\"old\"}");
+            handler.EnqueueJson("{\"status\":\"success\",\"version\":8}");
+            using var client = CreateClient(handler);
+            var largeSource = new string('x', 70000);
+
+            var result = await client.PublishToTargetAsync(CreateCandidate(HubitatCodeKind.Driver, "Test Driver", "mads"), largeSource, 10);
+
+            Assert.IsTrue(result.Success);
+            var updateRequest = handler.Requests.FirstOrDefault(r =>
+                string.Equals(r.Method, HttpMethod.Post.Method, StringComparison.OrdinalIgnoreCase)
+                && r.RequestUri.EndsWith("/driver/ajax/update", StringComparison.OrdinalIgnoreCase));
+            Assert.IsNotNull(updateRequest);
+            Assert.AreEqual("application/x-www-form-urlencoded", updateRequest.ContentType);
+            StringAssert.Contains(updateRequest.Content, "id=10");
+            StringAssert.Contains(updateRequest.Content, "version=7");
+            Assert.IsTrue(updateRequest.Content.Length > largeSource.Length);
         }
 
         [TestMethod]
@@ -182,7 +205,16 @@ namespace HubitatVS.Tests
 
         private sealed class QueueMessageHandler : HttpMessageHandler
         {
+            internal sealed class CapturedRequest
+            {
+                public string Method = string.Empty;
+                public string RequestUri = string.Empty;
+                public string ContentType = string.Empty;
+                public string Content = string.Empty;
+            }
+
             private readonly Queue<Func<HttpResponseMessage>> _responses = new Queue<Func<HttpResponseMessage>>();
+            public List<CapturedRequest> Requests { get; } = new List<CapturedRequest>();
 
             public void EnqueueJson(string json, HttpStatusCode statusCode = HttpStatusCode.OK)
             {
@@ -195,14 +227,23 @@ namespace HubitatVS.Tests
             public void EnqueueResponse(Func<HttpResponseMessage> responseFactory)
                 => _responses.Enqueue(responseFactory);
 
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             {
+                var captured = new CapturedRequest
+                {
+                    Method = request.Method.Method,
+                    RequestUri = request.RequestUri?.ToString() ?? string.Empty,
+                    ContentType = request.Content?.Headers?.ContentType?.MediaType ?? string.Empty,
+                    Content = request.Content != null ? await request.Content.ReadAsStringAsync() : string.Empty
+                };
+                Requests.Add(captured);
+
                 if (_responses.Count == 0)
                 {
                     throw new InvalidOperationException($"No queued HTTP response for {request.Method} {request.RequestUri}");
                 }
 
-                return Task.FromResult(_responses.Dequeue().Invoke());
+                return _responses.Dequeue().Invoke();
             }
         }
     }

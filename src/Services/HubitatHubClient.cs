@@ -207,7 +207,7 @@ namespace HubitatVS
             if (string.IsNullOrEmpty(_config.Username) || string.IsNullOrEmpty(_config.Password))
                 return string.Empty;
 
-            var content = new FormUrlEncodedContent(new[]
+            var content = CreateUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("username", _config.Username),
                 new KeyValuePair<string, string>("password", _config.Password),
@@ -422,7 +422,7 @@ namespace HubitatVS
                 return await SaveAppCodeJsonAsync(codeId, codeData.Version, source, ct);
             }
 
-            var updateContent = new FormUrlEncodedContent(new[]
+            var updateContent = CreateUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("id", codeId.ToString()),
                 new KeyValuePair<string, string>("version", codeData.Version.ToString()),
@@ -466,7 +466,7 @@ namespace HubitatVS
                 return await SaveAppCodeJsonAsync(null, null, source, ct);
             }
 
-            var createContent = new FormUrlEncodedContent(new[]
+            var createContent = CreateUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("id", string.Empty),
                 new KeyValuePair<string, string>("version", string.Empty),
@@ -572,6 +572,24 @@ namespace HubitatVS
             var codeJson = await codeResponse.Content.ReadAsStringAsync();
             var codeData = JsonConvert.DeserializeObject<HubitatCodeResponse>(codeJson);
             return codeData?.Version;
+        }
+
+        private static HttpContent CreateUrlEncodedContent(IEnumerable<KeyValuePair<string, string>> values)
+        {
+            var builder = new StringBuilder();
+            foreach (var pair in values)
+            {
+                if (builder.Length > 0)
+                {
+                    builder.Append('&');
+                }
+
+                builder.Append(WebUtility.UrlEncode(pair.Key ?? string.Empty));
+                builder.Append('=');
+                builder.Append(WebUtility.UrlEncode(pair.Value ?? string.Empty));
+            }
+
+            return new StringContent(builder.ToString(), Encoding.UTF8, "application/x-www-form-urlencoded");
         }
 
         private HttpRequestMessage CreateRequest(HttpMethod method, string requestUri)
